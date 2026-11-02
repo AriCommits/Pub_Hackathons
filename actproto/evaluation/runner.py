@@ -62,6 +62,14 @@ class EvalResult:
                 averages[key] = sum(float(v) for v in values) / n
             else:
                 averages[key] = None
+        latencies = [r.metrics.get("latency_s") for r in self.rows if r.metrics.get("latency_s") is not None]
+        if latencies:
+            sorted_lat = sorted(float(x) for x in latencies)
+            mid = len(sorted_lat) // 2
+            if len(sorted_lat) % 2 == 1:
+                averages["latency_p50"] = sorted_lat[mid]
+            else:
+                averages["latency_p50"] = (sorted_lat[mid - 1] + sorted_lat[mid]) / 2
         return {"summary": self.summary(), "averages": averages, "rows": [r.metrics for r in self.rows]}
 
 

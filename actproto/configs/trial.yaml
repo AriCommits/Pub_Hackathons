@@ -1,0 +1,46 @@
+# ActProto-LoRA trial layout — edit paths and run knobs here, then:
+#   python scripts/run_trial.py --run B0|B1|B2|all
+#   python scripts/compare_results.py
+#
+# Model weights / activation hooks still come from default.yaml + model.yaml (+ optional layer.yaml).
+
+paths:
+  data_processed: data/processed
+  activations_dump: results/activations
+  adapter_b1: results/adapters/b1
+  results_root: results
+  prototypes_dir: results
+  reports_dir: results/b0_b2
+
+eval:
+  split: test
+  limit: null
+
+hypothesis:
+  correctness_drop_pp: 3.0
+  latency_ratio: 1.5
+  min_coverage: 0.5
+
+prototype_fit:
+  min_coverage: 0.5
+
+runs:
+  B0:
+    description: Base Tiny Aya, no adapter, no router
+    adapter: null
+    router: false
+  B1:
+    description: Ordinary LoRA, no router
+    adapter: results/adapters/b1
+    router: false
+  B2:
+    description: LoRA + prototype router
+    adapter: results/adapters/b1
+    router: true
+    prototypes: results/prototypes.npz
+    threshold: results/prototype_metrics.json
+
+export:
+  adapter: results/adapters/b1
+  data: data/processed
+  logs: results/b0_b2

@@ -13,36 +13,40 @@ Python 3.10+. The model repo `CohereLabs/tiny-aya-global` is gated.
 ```bash
 cd lexsi
 python -m pip install -e ".[dev]"
-# optional, for live infer / training:
-python -m pip install -e ".[train]"
-huggingface-cli login   # HF_TOKEN for Tiny Aya
+python -m pip install -e ".[train]"   # GPU train / live infer
+huggingface-cli login                   # HF_TOKEN for Tiny Aya
 ```
+
+## Trial config (paths + B0–B2)
+
+Edit **`actproto/configs/trial.yaml`** for artifact paths, eval split, and run definitions. See **`docs/TRIAL_CONFIG.md`** for the full map.
+
+All scripts accept `--config path/to/trial.yaml` (default: `actproto/configs/trial.yaml`).
 
 ## Reproduce B0–B2
 
 ```bash
 python scripts/generate_dataset.py
-python scripts/train_lora.py --dry-run          # drop --dry-run on GPU
-python scripts/extract_activations.py --dry-run
-python scripts/build_prototypes.py --dump results/activations
-python scripts/train_probe.py --dump results/activations
-python scripts/run_b0.py --dry-run --limit 20
-python scripts/run_b1.py --dry-run --limit 20
-python scripts/run_b2.py --dry-run --limit 20
-python scripts/compare_results.py --dry-run
+python scripts/train_lora.py --plan-only          # drop flag for GPU training
+python scripts/extract_activations.py --plan-only # then run without flag after LoRA
+python scripts/build_prototypes.py
+python scripts/train_probe.py
+python scripts/run_trial.py --run all             # B0, B1, B2 live eval
+python scripts/compare_results.py
 ```
 
-Live runs write tables under `results/b0_b2/`. `--dry-run` gold-replays tools so CI can run without weights.
+Reports land under `results/b0_b2/{B0,B1,B2}/` (override in `trial.yaml`).
 
 ## Layout
 
 ```
 actproto/
-  configs/ tools/ data/ agent/ activations/ training/ evaluation/ steering/ utils/
-scripts/          # experiment CLIs
+  configs/   # trial.yaml, model.yaml, default.yaml, sft.yaml
+  tools/ data/ agent/ activations/ training/ evaluation/ steering/ utils/
+scripts/     # run_trial.py, compare_results.py, …
 tests/
 docs/METHOD.md
-docs/SUBMISSION.md
+docs/TRIAL_CONFIG.md
 ```
 
 ## Tests
@@ -54,7 +58,8 @@ python -m pytest
 ## Hugging Face export
 
 ```bash
-python scripts/export_hf_artifacts.py --dry-run
+python scripts/export_hf_artifacts.py --list-only
+python scripts/export_hf_artifacts.py --repo your-org/actproto-lexsi
 ```
 
-The exporter refuses `.env` / token files.
+The exporter refuses `.env` / token files and uses relative paths from `trial.yaml` → `export`.

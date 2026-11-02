@@ -31,26 +31,36 @@ def assert_no_secrets(files: list[Path]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._cli import add_trial_argument, trial_from_args
+
     parser = argparse.ArgumentParser(description="List (or upload) HF artifacts. Refuses secrets.")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--repo", default=None, help="HF repo id; required unless --dry-run")
-    parser.add_argument("--adapter", default="results/adapters/b1")
-    parser.add_argument("--data", default="data/processed")
-    parser.add_argument("--logs", default="results/b0_b2")
+    add_trial_argument(parser)
+    parser.add_argument("--list-only", action="store_true", help="List files that would be uploaded (default without --repo).")
+    parser.add_argument("--repo", default=None, help="HF repo id; required to upload")
     args = parser.parse_args(argv)
-    files = collect([ROOT / args.adapter, ROOT / args.data, ROOT / args.logs])
+    trial = trial_from_args(args)
+    paths = [
+        trial.resolve(trial.export.adapter),
+        trial.resolve(trial.export.data),
+        trial.resolve(trial.export.logs),
+    ]
+    paths = [p for p in paths if p is not None]
+    files = collect(paths)
     assert_no_secrets(files)
-    rel = [str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p) for p in files]
+    root = trial.root
+    rel = [str(p.relative_to(root)) for p in files if p.is_relative_to(root)]
     print("files:")
     for item in rel:
         print(f"  {item}")
-    if args.dry_run or not args.repo:
+    if args.list_only or not args.repo:
         return 0
     from huggingface_hub import HfApi  # pragma: no cover
 
     api = HfApi()
+    root = trial.root
     for path in files:
-        api.upload_file(path_or_fileobj=str(path), path_in_repo=path.name, repo_id=args.repo)
+        path_in_repo = str(path.relative_to(root)) if path.is_relative_to(root) else path.name
+        api.upload_file(path_or_fileobj=str(path), path_in_repo=path_in_repo, repo_id=args.repo)
     return 0
 
 

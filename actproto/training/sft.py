@@ -1,4 +1,4 @@
-"""Ordinary LoRA SFT. No activation loss. GPU train is optional; dry-run is the unit-test path."""
+"""Ordinary LoRA SFT. No activation loss. Use scripts/train_lora.py --plan-only without GPU."""
 
 from __future__ import annotations
 

@@ -17,7 +17,7 @@ from actproto.training.grpo import build_grpo_kwargs, try_create_trainer  # noqa
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AgentTune GRPO (stretch, lowest priority).")
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--plan-only", action="store_true", help="Print GRPO wiring summary without training.")
     args = parser.parse_args(argv)
     cfg = load_default()
     kwargs = build_grpo_kwargs(cfg.model_id, dataset=[], tools=list(as_harness_dict().values()))

@@ -1,0 +1,23 @@
+from pathlib import Path
+
+from actproto.configs.trial_schema import load_trial, merge_run_paths
+
+
+def test_default_trial_paths_and_runs():
+    trial = load_trial()
+    root = trial.root
+    assert (root / "actproto" / "configs" / "trial.yaml").exists()
+    assert trial.eval.split == "test"
+    assert set(trial.runs) >= {"B0", "B1", "B2"}
+    assert trial.resolve(trial.paths.reports_dir) == (root / "results" / "b0_b2").resolve()
+    assert trial.run_spec("B2").router is True
+    b2_adapter, protos, thresh = merge_run_paths(trial, trial.run_spec("B2"))
+    assert b2_adapter == "results/adapters/b1"
+    assert protos.endswith("prototypes.npz")
+    assert thresh.endswith("prototype_metrics.json")
+
+
+def test_hypothesis_defaults():
+    trial = load_trial()
+    assert trial.hypothesis.correctness_drop_pp == 3.0
+    assert trial.hypothesis.latency_ratio == 1.5

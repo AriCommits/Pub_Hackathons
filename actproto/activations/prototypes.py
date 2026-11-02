@@ -23,3 +23,8 @@ def fit_prototypes(vectors: np.ndarray, labels: list[str]) -> dict[str, np.ndarr
 
 def labels_from_index(index: list[dict]) -> list[str]:
     return [canonical_tool_name(row["gold_tool"]) for row in index]
+
+
+def load_prototypes_npz(path: str | Path) -> dict[str, np.ndarray]:
+    data = np.load(Path(path))
+    return {key: np.asarray(data[key], dtype=np.float32) for key in data.files}

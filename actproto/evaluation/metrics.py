@@ -97,7 +97,7 @@ def score_episode(case: AgentCase, episode: Episode) -> dict[str, Any]:
     pred_names = [c.get("name") or "" for c in pred_calls]
     gold_names = [c.get("name") or "" for c in gold_calls]
     outcome = case.outcome.check(final_state=episode.final_state, final_answer=episode.final_answer)
-    return {
+    scored = {
         "case_id": case.id,
         "status": "ok",
         "outcome": outcome,
@@ -112,7 +112,9 @@ def score_episode(case: AgentCase, episode: Episode) -> dict[str, Any]:
         "step_count": len(pred_calls),
         "repeated_calls": repeated_calls(pred_names),
         "unnecessary_calls": unnecessary_calls(pred_names, gold_names),
-        "latency_s": episode.latency_s,
         "predicted_tools": pred_names,
         "gold_tools": gold_names,
     }
+    if episode.latency_s is not None:
+        scored["latency_s"] = episode.latency_s
+    return scored

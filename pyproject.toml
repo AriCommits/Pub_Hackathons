@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "actproto"
+version = "0.1.0"
+description = "Activation-prototype tool routing for Tiny Aya (Lexsi Track 3)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "ActProto-LoRA" }]
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+train = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "peft>=0.11",
+    "trl>=0.9",
+    "accelerate>=0.30",
+    "datasets>=2.19",
+    "huggingface_hub>=0.23",
+]
+qlora = ["bitsandbytes>=0.43"]
+circuits = []
+
+[project.scripts]
+actproto-generate-dataset = "scripts.generate_dataset:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["actproto*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+markers = [
+    "gpu: tests that require a GPU or model weights (deselect in CI)",
+]

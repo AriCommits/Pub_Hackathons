@@ -1,0 +1,11 @@
+seed: 42
+max_new_tokens: 256
+max_agent_steps: 6
+dtype: bfloat16
+load_in_4bit: false
+adapter_path: null
+tool_schema_version: v1
+activation:
+  layer: auto
+  token: prompt_last
+  detach: true

@@ -1,0 +1,6 @@
+# CohereLabs/tiny-aya-global is gated on Hugging Face. Set HF_TOKEN or run
+# `huggingface-cli login` before downloading weights. Do not put tokens here.
+model_id: CohereLabs/tiny-aya-global
+revision: null
+dtype: bfloat16
+load_in_4bit: false

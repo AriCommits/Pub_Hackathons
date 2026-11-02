@@ -1,0 +1,18 @@
+correctness_drop_pp: 3.0
+latency_ratio: 1.5
+min_coverage: 0.5
+runs:
+  B0:
+    adapter: null
+    router: false
+    description: Base Tiny Aya, no adapter, no router
+  B1:
+    adapter: results/adapters/b1
+    router: false
+    description: Ordinary LoRA, no router
+  B2:
+    adapter: results/adapters/b1
+    router: true
+    prototypes: results/prototypes.npz
+    threshold: results/prototype_metrics.json
+    description: LoRA + prototype router

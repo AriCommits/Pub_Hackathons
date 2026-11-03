@@ -7,16 +7,29 @@ from typing import Any, Literal
 TokenMode = Literal["prompt_last", "pre_tool_name"]
 
 
+def _walk_modules(model: Any):
+    current = model
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        nxt = None
+        for attr in ("base_model", "model"):
+            candidate = getattr(current, attr, None)
+            if candidate is not None and id(candidate) not in seen:
+                nxt = candidate
+                break
+        current = nxt
+
+
 def n_layers(model: Any) -> int:
-    if hasattr(model, "n_layers"):
-        return int(model.n_layers)
-    if hasattr(model, "blocks"):
-        return len(model.blocks)
-    if hasattr(model, "layers"):
-        return len(model.layers)
-    inner = getattr(model, "model", None)
-    if inner is not None and hasattr(inner, "layers"):
-        return len(inner.layers)
+    for current in _walk_modules(model):
+        if hasattr(current, "n_layers"):
+            return int(current.n_layers)
+        if hasattr(current, "blocks"):
+            return len(current.blocks)
+        if hasattr(current, "layers"):
+            return len(current.layers)
     raise AttributeError("cannot resolve layer count")
 
 
@@ -33,13 +46,11 @@ def resolve_layer(model: Any, layer: int | str = "auto") -> int:
 
 
 def get_block(model: Any, layer_index: int) -> Any:
-    if hasattr(model, "blocks"):
-        return model.blocks[layer_index]
-    if hasattr(model, "layers"):
-        return model.layers[layer_index]
-    inner = getattr(model, "model", None)
-    if inner is not None and hasattr(inner, "layers"):
-        return inner.layers[layer_index]
+    for current in _walk_modules(model):
+        if hasattr(current, "blocks"):
+            return current.blocks[layer_index]
+        if hasattr(current, "layers"):
+            return current.layers[layer_index]
     raise AttributeError("cannot resolve transformer block")
 
 

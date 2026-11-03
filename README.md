@@ -6,6 +6,8 @@ The system reads residual-stream activations immediately before tool choice, bui
 
 Ordinary LoRA tool-use fine-tuning is the baseline. A linear probe on the same activations is the representation baseline. The headline metric is **verified task success**, not claimed success.
 
+Live B0–B2 progress, environment notes, and the resume checklist are in [`docs/EXPERIMENT_STATUS.md`](docs/EXPERIMENT_STATUS.md). Update that file as the run proceeds.
+
 ## Setup
 
 Python 3.10+. The model repo `CohereLabs/tiny-aya-global` is gated.

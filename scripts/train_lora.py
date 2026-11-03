@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,6 +14,8 @@ if str(ROOT) not in sys.path:
 
 from actproto.data.generator import generate_tasks  # noqa: E402
 from actproto.training.lora_config import LoraSftConfig  # noqa: E402
+from actproto.configs.schema import load_default  # noqa: E402
+from actproto.training.lora_run import run_lora_sft  # noqa: E402
 from actproto.training.sft import build_train_payload, try_agenttune_sft  # noqa: E402
 from scripts._cli import add_trial_argument, trial_from_args  # noqa: E402
 
@@ -31,9 +35,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.plan_only:
         print(json.dumps({k: payload[k] for k in ("n_rows", "output_dir", "peft", "path", "agenttune")}, indent=2))
         return 0
-    print("GPU training entrypoint: wire TRL/PEFT trainer here using payload['path'] and cfg.output_dir.")
-    print(json.dumps({"output_dir": cfg.output_dir, "n_rows": payload["n_rows"]}, indent=2))
-    return 2
+    _pin_largest_gpu()
+    experiment = load_default()
+    result = run_lora_sft(tasks, cfg, experiment.model_id, experiment.revision)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def _pin_largest_gpu() -> None:
+    """Hide every card except the one with the most memory. Must run before torch is imported here."""
+    if os.environ.get("CUDA_VISIBLE_DEVICES"):
+        print(f"CUDA_VISIBLE_DEVICES already {os.environ['CUDA_VISIBLE_DEVICES']}", flush=True)
+        return
+    code = (
+        "import torch\n"
+        "if not torch.cuda.is_available():\n"
+        "    raise SystemExit(0)\n"
+        "best = max(range(torch.cuda.device_count()), key=lambda i: torch.cuda.get_device_properties(i).total_memory)\n"
+        "print(best)\n"
+        "print(torch.cuda.get_device_name(best), file=__import__('sys').stderr)\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    index = proc.stdout.strip().splitlines()[-1]
+    os.environ["CUDA_VISIBLE_DEVICES"] = index
+    print(f"pinned training to CUDA_VISIBLE_DEVICES={index} ({proc.stderr.strip()})", flush=True)
 
 
 if __name__ == "__main__":

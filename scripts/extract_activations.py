@@ -22,13 +22,19 @@ from scripts._cli import add_trial_argument, trial_from_args  # noqa: E402
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Extract activation vectors into trial.paths.activations_dump.")
     add_trial_argument(parser)
-    parser.add_argument("--split", default=None, help="Override trial.eval.split for extraction (default: train)")
+    parser.add_argument("--split", default=None, help="train, val, test, or all (default: train)")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--plan-only", action="store_true", help="Print planned paths and task count without loading weights.")
     args = parser.parse_args(argv)
     trial = trial_from_args(args)
     split = args.split or "train"
-    tasks = load_tasks(split, args.limit)
+    if split == "all":
+        from actproto.data.generator import generate_tasks
+        tasks = generate_tasks()
+        if args.limit is not None:
+            tasks = tasks[: args.limit]
+    else:
+        tasks = load_tasks(split, args.limit)
     dump = trial.resolve(trial.paths.activations_dump)
     if args.plan_only:
         print(

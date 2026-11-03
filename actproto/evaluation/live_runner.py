@@ -19,7 +19,7 @@ from actproto.agent.strategy import model_policy
 from actproto.configs.schema import DEFAULT_CONFIG_PATH, MODEL_CONFIG_PATH, ExperimentConfig, load_config, load_default
 from actproto.configs.trial_schema import TrialConfig, merge_run_paths
 from actproto.evaluation.cases import task_to_case
-from actproto.evaluation.episodes import eventlog_to_episode
+from actproto.evaluation.episodes import Episode, eventlog_to_episode
 from actproto.evaluation.report import write_report
 from actproto.evaluation.runner import AgentEvalRunner, AgentEvalSpec
 from actproto.evaluation.task_loader import load_tasks
@@ -40,8 +40,11 @@ def _encode_prompt(loaded: LoadedModel, prompt: str) -> dict[str, Any]:
         return_dict=True,
         return_tensors="pt",
     )
+    from actproto.agent.model import _parameter_device
+
     model = loaded.model
-    return {k: v.to(model.device) for k, v in encoded.items()}
+    device = _parameter_device(model)
+    return {k: v.to(device) for k, v in encoded.items() if hasattr(v, "to")}
 
 
 def make_vector_fn(loaded: LoadedModel, config: ExperimentConfig) -> Callable[[Any], np.ndarray]:
@@ -96,27 +99,86 @@ def build_live_project(run_id: str, trial: TrialConfig, loaded: LoadedModel) -> 
     )
 
 
+def _replica_indices() -> list[str]:
+    """How many bf16 copies fit. Subprocess so this process does not init CUDA."""
+    import json
+    import subprocess
+    import sys
+
+    lines = [
+        "import json, os, torch",
+        "bytes_per = int(6.35 * 1024**3)",
+        "reserve = int(0.30 * 1024**3)",
+        "cap = 2",
+        "if not torch.cuda.is_available():",
+        "    print(json.dumps({'plan': ['cpu'], 'gpus': []}))",
+        "    raise SystemExit",
+        "allowed = os.environ.get('ACTPROTO_CUDA_DEVICES')",
+        "indices = list(range(torch.cuda.device_count()))",
+        "if allowed:",
+        "    indices = [int(x) for x in allowed.split(',') if x.strip()]",
+        "    indices = [i for i in indices if 0 <= i < torch.cuda.device_count()]",
+        "plan = []",
+        "gpus = []",
+        "for i in indices:",
+        "    free, total = torch.cuda.mem_get_info(i)",
+        "    n = max(0, min(cap, int((free - reserve) // bytes_per)))",
+        "    plan.extend([str(i)] * n)",
+        "    gpus.append({'index': i, 'name': torch.cuda.get_device_name(i), 'free_gb': round(free/1024**3, 2), 'replicas': n})",
+        "if not plan and indices:",
+        "    best = max(indices, key=lambda i: torch.cuda.get_device_properties(i).total_memory)",
+        "    plan = [str(best)]",
+        "print(json.dumps({'plan': plan, 'gpus': gpus}))",
+    ]
+    proc = subprocess.run([sys.executable, "-c", "\n".join(lines)], capture_output=True, text=True, check=True)
+    line = [ln for ln in proc.stdout.splitlines() if ln.startswith("{")][-1]
+    payload = json.loads(line)
+    print(json.dumps(payload), flush=True)
+    return list(payload["plan"])
+
+
 def run_live_trial(run_id: str, trial: TrialConfig) -> dict[str, Any]:
+    import multiprocessing as mp
+
+    from actproto.evaluation.shard_worker import eval_shard
+
     tasks = load_tasks(trial.eval.split, trial.eval.limit)
     spec = trial.run_spec(run_id)
-    adapter_rel, _, _ = merge_run_paths(trial, spec)
-    config = load_config(DEFAULT_CONFIG_PATH, MODEL_CONFIG_PATH)
-    if adapter_rel:
-        config.adapter_path = adapter_rel
-
-    loaded = load_model(config)
-    project = build_live_project(run_id, trial, loaded)
-
-    cases = [task_to_case(t) for t in tasks]
+    plan = _replica_indices()
+    buckets: list[list[dict[str, Any]]] = [[] for _ in plan]
+    for index, task in enumerate(tasks):
+        buckets[index % len(plan)].append({"index": index, "task": task.to_dict()})
+    jobs = []
+    for visible, items in zip(plan, buckets):
+        if not items:
+            continue
+        jobs.append(
+            {
+                "cuda_visible": visible,
+                "items": items,
+                "run_id": run_id,
+                "trial": trial.to_dict(),
+                "root": str(trial.root),
+            }
+        )
+    print(f"{run_id}: {len(tasks)} tasks on {len(jobs)} replicas", flush=True)
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(len(jobs)) as pool:
+        parts = pool.map(eval_shard, jobs)
+    packed = [row for part in parts for row in part]
+    packed.sort(key=lambda row: row["index"])
     episodes = []
-    for task in tasks:
-        t0 = time.perf_counter()
-        log = project.infer(task.prompt)
-        elapsed = time.perf_counter() - t0
-        ep = eventlog_to_episode(log, task.id)
-        ep.latency_s = elapsed
+    for row in packed:
+        ep = Episode(
+            case_id=row["case_id"],
+            messages=row["messages"],
+            final_answer=row["final_answer"],
+            final_state=row["final_state"] or {},
+            latency_s=row["latency_s"],
+        )
         episodes.append(ep)
 
+    cases = [task_to_case(t) for t in tasks]
     eval_spec = AgentEvalSpec(cases=cases, mode="recorded", episodes=episodes)
     result = AgentEvalRunner().run(eval_spec)
     out_dir = trial.report_dir(run_id)
@@ -124,5 +186,6 @@ def run_live_trial(run_id: str, trial: TrialConfig) -> dict[str, Any]:
     payload["run_id"] = run_id
     payload["n_tasks"] = len(tasks)
     payload["description"] = spec.description
+    payload["replicas"] = plan
     (out_dir / "eval.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return payload

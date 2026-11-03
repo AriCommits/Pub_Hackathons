@@ -59,6 +59,40 @@ def test_run_step_limit_is_applied_to_live_project(monkeypatch):
     assert captured["config"].max_agent_steps == 2
 
 
+def test_b2d1_routes_only_the_first_hop(monkeypatch, tmp_path):
+    prototypes_path = tmp_path / "prototypes.npz"
+    prototypes_path.touch()
+    trial = TrialConfig(
+        runs={"B2d1": RunSpec(router=True, max_agent_steps=2)},
+        _root=tmp_path,
+    )
+    captured = {}
+    monkeypatch.setattr(live_runner, "load_default", ExperimentConfig)
+    monkeypatch.setattr(
+        live_runner,
+        "merge_run_paths",
+        lambda _trial, _spec: (None, "prototypes.npz", None),
+    )
+    monkeypatch.setattr(live_runner, "load_prototypes_npz", lambda _path: {})
+    monkeypatch.setattr(
+        live_runner,
+        "make_vector_fn",
+        lambda _loaded, _config: lambda _state: "routed",
+    )
+
+    def fake_build_routed_project(_config, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(live_runner, "build_routed_project", fake_build_routed_project)
+
+    live_runner.build_live_project("B2d1", trial, object())
+
+    vector_fn = captured["vector_fn"]
+    assert vector_fn(SimpleNamespace(step=0)) == "routed"
+    assert vector_fn(SimpleNamespace(step=1)) is None
+
+
 def test_replica_limit_caps_detected_plan(monkeypatch):
     payload = '{"plan": ["1", "1"], "gpus": []}\n'
     monkeypatch.setattr(

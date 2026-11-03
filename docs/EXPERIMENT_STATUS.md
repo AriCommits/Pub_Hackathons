@@ -233,4 +233,4 @@ B2 rerun stalled: the RTX 4060 worker (pid 22068) held 7.9 GB at 0% GPU and 0 CP
 
 ## B2 depth-1 follow-up
 
-- `B2d1` completed on CUDA device 1 with one replica (`n=104`): first-tool accuracy **1.000** (matches saved B2 **1.000**), first-argument correctness **0.885**, verified task success **0.087**, and median latency **31.979 s**. Reports: `results/b0_b2/B2d1/eval.json` and `eval.md`.
+- `B2d1` completed on CUDA device 1 with one replica (`n=104`): first-tool accuracy **1.000** (matches saved B2 **1.000**), first-argument correctness **0.885**, verified task success **0.000**, and median latency **31.802 s**. Reports: `results/b0_b2/B2d1/eval.json` and `eval.md`.

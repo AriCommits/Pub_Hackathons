@@ -99,12 +99,18 @@ def build_live_project(run_id: str, trial: TrialConfig, loaded: LoadedModel) -> 
         if tpath and tpath.exists():
             threshold = Threshold.load(tpath)
 
+    vector_fn = make_vector_fn(loaded, config)
+    if run_id == "B2d1":
+        routed_vector_fn = lambda state: vector_fn(state) if state.step == 0 else None
+    else:
+        routed_vector_fn = vector_fn
+
     return build_routed_project(
         config,
         prototypes=prototypes,
         threshold=threshold,
         inner_policy=inner,
-        vector_fn=make_vector_fn(loaded, config),
+        vector_fn=routed_vector_fn,
         generate_fn=generate_fn,
     )
 

@@ -8,13 +8,18 @@ def test_default_trial_paths_and_runs():
     root = trial.root
     assert (root / "actproto" / "configs" / "trial.yaml").exists()
     assert trial.eval.split == "test"
-    assert set(trial.runs) >= {"B0", "B1", "B2"}
+    assert set(trial.runs) >= {"B0", "B1", "B2", "B2d1"}
     assert trial.resolve(trial.paths.reports_dir) == (root / "results" / "b0_b2").resolve()
     assert trial.run_spec("B2").router is True
     b2_adapter, protos, thresh = merge_run_paths(trial, trial.run_spec("B2"))
     assert b2_adapter == "results/adapters/b1"
     assert protos.endswith("prototypes.npz")
     assert thresh.endswith("prototype_metrics.json")
+    b2d1 = trial.run_spec("B2d1")
+    assert b2d1.adapter == "results/adapters/b1"
+    assert b2d1.router is True
+    assert b2d1.max_agent_steps == 2
+    assert b2d1.replicas == 1
 
 
 def test_hypothesis_defaults():

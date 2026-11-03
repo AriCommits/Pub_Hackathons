@@ -39,6 +39,14 @@ runs:
     router: true
     prototypes: results/prototypes.npz
     threshold: results/prototype_metrics.json
+  B2d1:
+    description: LoRA + prototype router, depth-1 episode
+    adapter: results/adapters/b1
+    router: true
+    prototypes: results/prototypes.npz
+    threshold: results/prototype_metrics.json
+    max_agent_steps: 2
+    replicas: 1
 
 export:
   adapter: results/adapters/b1

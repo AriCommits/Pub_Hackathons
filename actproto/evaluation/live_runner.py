@@ -76,6 +76,8 @@ def build_live_project(run_id: str, trial: TrialConfig, loaded: LoadedModel) -> 
     config = load_default()
     if adapter_rel:
         config.adapter_path = adapter_rel
+    if spec.max_agent_steps is not None:
+        config.max_agent_steps = spec.max_agent_steps
 
     def generate_fn(messages: list[dict[str, Any]]) -> str:
         return generate_text(loaded, messages, max_new_tokens=config.max_new_tokens)
@@ -107,7 +109,7 @@ def build_live_project(run_id: str, trial: TrialConfig, loaded: LoadedModel) -> 
     )
 
 
-def _replica_indices() -> list[str]:
+def _replica_indices(max_replicas: int | None = None) -> list[str]:
     """How many bf16 copies fit. Subprocess so this process does not init CUDA."""
     import json
     import subprocess
@@ -141,8 +143,12 @@ def _replica_indices() -> list[str]:
     proc = subprocess.run([sys.executable, "-c", "\n".join(lines)], capture_output=True, text=True, check=True)
     line = [ln for ln in proc.stdout.splitlines() if ln.startswith("{")][-1]
     payload = json.loads(line)
+    plan = list(payload["plan"])
+    if max_replicas is not None:
+        plan = plan[:max_replicas]
+        payload["plan"] = plan
     print(json.dumps(payload), flush=True)
-    return list(payload["plan"])
+    return plan
 
 
 def run_live_trial(run_id: str, trial: TrialConfig) -> dict[str, Any]:
@@ -152,7 +158,7 @@ def run_live_trial(run_id: str, trial: TrialConfig) -> dict[str, Any]:
 
     tasks = load_tasks(trial.eval.split, trial.eval.limit)
     spec = trial.run_spec(run_id)
-    plan = _replica_indices()
+    plan = _replica_indices(spec.replicas)
     buckets: list[list[dict[str, Any]]] = [[] for _ in plan]
     for index, task in enumerate(tasks):
         buckets[index % len(plan)].append({"index": index, "task": task.to_dict()})

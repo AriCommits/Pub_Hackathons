@@ -13,6 +13,7 @@ from actproto.agent.arg_prompt import argument_prompt
 from actproto.agent.harness import DictToolHarness
 from actproto.agent.parse import ParseError, parse_tool_call
 from actproto.agent.project import Project
+from actproto.agent.prompts import messages_for_template
 from actproto.agent.router import route_vector
 from actproto.agent.schema_regen import regenerate_arguments
 from actproto.agent.strategy import AgentState, Policy, ReActStrategy
@@ -47,13 +48,12 @@ def routed_policy(
         if generate_fn is not None:
 
             def model_fn(_tool: str, _prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
-                messages = [dict(message) for message in state.log.messages]
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": argument_prompt(selected_tool, schema.get("properties", {})),
-                    }
-                )
+                messages = [dict(message) for message in messages_for_template(state.log.messages)]
+                prompt = argument_prompt(selected_tool, schema.get("properties", {}))
+                if messages and messages[-1].get("role") == "user":
+                    messages[-1]["content"] = f"{messages[-1]['content']}\n\n{prompt}"
+                else:
+                    messages.append({"role": "user", "content": prompt})
                 parsed = parse_tool_call(generate_fn(messages))
                 if isinstance(parsed, ParseError) or parsed.name != selected_tool:
                     return {"__invalid__": True}

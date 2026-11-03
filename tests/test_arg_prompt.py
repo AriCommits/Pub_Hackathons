@@ -50,8 +50,12 @@ def test_routed_project_uses_valid_generated_arguments():
     assert log.tool_results[0].arguments == {"record_id": "REC-777"}
     assert generated_messages[0][-1] == {
         "role": "user",
-        "content": "Use this tool only: lookup_record(record_id). Emit one tool call.",
+        "content": (
+            "Look up REC-001\n\n"
+            "Use this tool only: lookup_record(record_id). Emit one tool call."
+        ),
     }
+    assert [message["role"] for message in generated_messages[0]] == ["system", "user"]
     assert len(generated_messages) == 1
 
 

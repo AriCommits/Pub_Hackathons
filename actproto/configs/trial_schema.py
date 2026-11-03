@@ -61,6 +61,8 @@ class RunSpec:
     router: bool = False
     prototypes: str | None = None
     threshold: str | None = None
+    max_agent_steps: int | None = None
+    replicas: int | None = None
 
 
 @dataclass

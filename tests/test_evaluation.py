@@ -63,6 +63,15 @@ def test_fabricated_answer_fails_state_assertion():
     spec = AgentEvalSpec(cases=build_cases(), mode="recorded", episodes=build_episodes(), trials=1)
     result = AgentEvalRunner().run(spec)
     verdicts = {r.case_id: r.outcome["verdict"] for r in result.rows}
+    metrics = {r.case_id: r.metrics for r in result.rows}
+    averages = result.as_dict()["averages"]
     assert verdicts["inventory-001"] == "success"
     assert verdicts["inventory-002"] == "failure"
-    assert "task_success" in result.as_dict()["averages"]
+    assert metrics["inventory-001"]["first_tool_accuracy"] == 1.0
+    assert metrics["inventory-001"]["first_argument_correctness"] == 1.0
+    assert metrics["inventory-002"]["first_tool_accuracy"] == 0.0
+    assert metrics["inventory-002"]["first_argument_correctness"] == 0.0
+    assert averages["first_tool_accuracy"] == 0.5
+    assert averages["first_argument_correctness"] == 0.5
+    assert averages["argument_correctness"] == 0.5
+    assert "task_success" in averages

@@ -21,12 +21,7 @@ THRESHOLD = Threshold(min_score=0.1, min_margin=0.0)
 
 
 def test_routed_project_falls_through_on_identical_successful_call():
-    inner = scripted_policy(
-        [
-            {"name": "calculator", "arguments": {"expression": "17*23"}},
-            {"name": "finish", "arguments": {"answer": "done"}},
-        ]
-    )
+    inner = scripted_policy([{"name": "finish", "arguments": {"answer": "done"}}])
     proj = build_routed_project(
         prototypes=PROTOTYPES,
         threshold=THRESHOLD,
@@ -42,13 +37,7 @@ def test_routed_project_falls_through_on_identical_successful_call():
 
 
 def test_routed_project_changes_route_from_transcript():
-    inner = scripted_policy(
-        [
-            {"name": "lookup_record", "arguments": {"record_id": "REC-001"}},
-            {"name": "calculator", "arguments": {"expression": "2+2"}},
-            {"name": "finish", "arguments": {"answer": "done"}},
-        ]
-    )
+    inner = scripted_policy([{"name": "finish", "arguments": {"answer": "done"}}])
 
     def vector_fn(state):
         has_tool_message = any(message.get("role") == "tool" for message in state.log.messages)

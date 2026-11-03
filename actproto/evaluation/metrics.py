@@ -107,8 +107,19 @@ def score_episode(case: AgentCase, episode: Episode) -> dict[str, Any]:
         "tool_call_f1": tool_call_f1(pred_names, gold_names),
         "tool_call_validity": argument_validity(pred_calls),
         "tool_choice_accuracy": prefix_tool_accuracy(pred_names, gold_names),
+        "first_tool_accuracy": float(
+            bool(pred_calls and gold_calls and pred_names[0] == gold_names[0])
+        ),
         "argument_validity": argument_validity(pred_calls),
         "argument_correctness": argument_correctness(pred_calls, gold_calls),
+        "first_argument_correctness": float(
+            bool(
+                pred_calls
+                and gold_calls
+                and pred_names[0] == gold_names[0]
+                and pred_calls[0].get("arguments") == gold_calls[0].get("arguments")
+            )
+        ),
         "step_count": len(pred_calls),
         "repeated_calls": repeated_calls(pred_names),
         "unnecessary_calls": unnecessary_calls(pred_names, gold_names),

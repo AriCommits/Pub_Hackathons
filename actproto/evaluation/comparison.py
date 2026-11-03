@@ -65,8 +65,10 @@ def comparison_table(
     metrics = [
         "task_success",
         "tool_choice_accuracy",
+        "first_tool_accuracy",
         "argument_validity",
         "argument_correctness",
+        "first_argument_correctness",
         "step_count",
         "repeated_calls",
         "unnecessary_calls",

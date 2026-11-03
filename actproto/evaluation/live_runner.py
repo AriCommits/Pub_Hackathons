@@ -103,6 +103,7 @@ def build_live_project(run_id: str, trial: TrialConfig, loaded: LoadedModel) -> 
         threshold=threshold,
         inner_policy=inner,
         vector_fn=make_vector_fn(loaded, config),
+        generate_fn=generate_fn,
     )
 
 

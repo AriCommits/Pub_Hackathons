@@ -2,13 +2,35 @@ from actproto.evaluation.comparison import comparison_table, evaluate_hypothesis
 
 
 def test_hypothesis_flag_from_fixture_reports():
-    b1 = {"averages": {"task_success": 0.5, "unnecessary_calls": 0.8, "argument_correctness": 0.7, "latency_p50": 1.0}}
-    b2 = {"averages": {"task_success": 0.6, "unnecessary_calls": 0.4, "argument_correctness": 0.69, "latency_p50": 1.1}}
+    b1 = {
+        "averages": {
+            "task_success": 0.5,
+            "unnecessary_calls": 0.8,
+            "argument_correctness": 0.7,
+            "first_tool_accuracy": 0.75,
+            "first_argument_correctness": 0.65,
+            "latency_p50": 1.0,
+        }
+    }
+    b2 = {
+        "averages": {
+            "task_success": 0.6,
+            "unnecessary_calls": 0.4,
+            "argument_correctness": 0.69,
+            "first_tool_accuracy": 1.0,
+            "first_argument_correctness": 0.9,
+            "latency_p50": 1.1,
+        }
+    }
     hyp = evaluate_hypothesis(b1, b2)
     assert hyp["passed"] is True
     table = comparison_table({"B0": b1, "B1": b1, "B2": b2})
     md = render_markdown(table)
     assert "B2" in md
+    assert "first_tool_accuracy" in md
+    assert "first_argument_correctness" in md
+    assert table["rows"][2]["first_tool_accuracy"] == 1.0
+    assert table["rows"][2]["first_argument_correctness"] == 0.9
     assert table["hypothesis"]["passed"] is True
 
 

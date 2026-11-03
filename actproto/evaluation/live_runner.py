@@ -14,6 +14,7 @@ from actproto.activations.prototypes import load_prototypes_npz
 from actproto.agent.abstention import Threshold
 from actproto.agent.model import LoadedModel, generate_text, load_model
 from actproto.agent.project import Project, build_project
+from actproto.agent.prompts import messages_for_template
 from actproto.agent.routed_strategy import build_routed_project
 from actproto.agent.strategy import model_policy
 from actproto.configs.schema import DEFAULT_CONFIG_PATH, MODEL_CONFIG_PATH, ExperimentConfig, load_config, load_default
@@ -25,13 +26,18 @@ from actproto.evaluation.runner import AgentEvalRunner, AgentEvalSpec
 from actproto.evaluation.task_loader import load_tasks
 
 
-def _encode_prompt(loaded: LoadedModel, prompt: str) -> dict[str, Any]:
+def _encode_prompt(
+    loaded: LoadedModel,
+    prompt: str,
+    messages: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     from actproto.agent.prompts import system_prompt
 
-    messages = [
-        {"role": "system", "content": system_prompt()},
-        {"role": "user", "content": prompt},
-    ]
+    if messages is None:
+        messages = [
+            {"role": "system", "content": system_prompt()},
+            {"role": "user", "content": prompt},
+        ]
     tokenizer = loaded.tokenizer
     encoded = tokenizer.apply_chat_template(
         messages,
@@ -49,7 +55,8 @@ def _encode_prompt(loaded: LoadedModel, prompt: str) -> dict[str, Any]:
 
 def make_vector_fn(loaded: LoadedModel, config: ExperimentConfig) -> Callable[[Any], np.ndarray]:
     def _vector(state) -> np.ndarray:
-        batch = _encode_prompt(loaded, state.task)
+        messages = messages_for_template(state.log.messages) if state.step > 0 else None
+        batch = _encode_prompt(loaded, state.task, messages=messages)
         seq_len = int(batch["input_ids"].shape[-1])
         with hooked(
             loaded.model,

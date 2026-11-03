@@ -38,6 +38,14 @@ def routed_policy(
         inner_call = inner(state)
         previous = inner_call if isinstance(inner_call, dict) else None
         args = regenerate_arguments(decision["tool"], state.task, previous_call=previous)
+        last_call = state.log.tool_results[-1] if state.log.tool_results else None
+        if (
+            last_call is not None
+            and last_call.output.get("ok") is True
+            and last_call.name == decision["tool"]
+            and last_call.arguments == args
+        ):
+            return inner_call
         return {"name": decision["tool"], "arguments": args}
 
     return _policy

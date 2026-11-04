@@ -167,12 +167,15 @@ def _replica_indices(max_replicas: int | None = None) -> list[str]:
     return plan
 
 
-def run_live_trial(run_id: str, trial: TrialConfig) -> dict[str, Any]:
+def run_live_trial(run_id: str, trial: TrialConfig, tasks: list[Any] | None = None) -> dict[str, Any]:
     import multiprocessing as mp
 
     from actproto.evaluation.shard_worker import eval_shard
 
-    tasks = load_tasks(trial.eval.split, trial.eval.limit)
+    if tasks is None:
+        tasks = load_tasks(trial.eval.split, trial.eval.limit)
+    else:
+        tasks = list(tasks)
     spec = trial.run_spec(run_id)
     plan = _replica_indices(spec.replicas)
     buckets: list[list[dict[str, Any]]] = [[] for _ in plan]

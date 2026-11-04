@@ -93,6 +93,15 @@ runs:
     route_first_hop_only: true
     max_agent_steps: 4
     replicas: 1
+  B2combo:
+    description: scripted tool combinations, including one 12-call sequence, on the paired adapter
+    adapter: results/adapters/b1_assistant_only
+    router: true
+    prototypes: results/prototypes_b1a.npz
+    threshold: results/prototype_metrics_b1a.json
+    route_first_hop_only: true
+    max_agent_steps: 12
+    replicas: 1
   B2chain:
     description: route every hop from the transcript, including the tool call and the tool result
     adapter: results/adapters/b1

@@ -26,6 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--adapter", default=None, help="Adapter directory. Defaults to trial.yaml adapter_b1.")
     parser.add_argument("--out", default=None, help="Dump directory. Defaults to trial.yaml activations_dump.")
+    parser.add_argument("--formats", action="store_true", help="Append one copy of every order-prompt format as train rows.")
     parser.add_argument("--plan-only", action="store_true", help="Print planned paths and task count without loading weights.")
     args = parser.parse_args(argv)
     trial = trial_from_args(args)
@@ -37,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
             tasks = tasks[: args.limit]
     else:
         tasks = load_tasks(split, args.limit)
+    if args.formats and split in {"train", "all"}:
+        from actproto.data.order_curriculum import ALL_FORMATS, order_tasks
+
+        tasks = list(tasks) + order_tasks(1, formats=ALL_FORMATS)
     adapter = args.adapter or trial.paths.adapter_b1
     dump = Path(args.out) if args.out else trial.resolve(trial.paths.activations_dump)
     if args.plan_only:

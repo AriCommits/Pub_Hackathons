@@ -120,6 +120,24 @@ runs:
     route_first_hop_only: true
     max_agent_steps: 12
     replicas: 1
+  B2fmt:
+    description: original test on the multi-format order adapter and its prototypes
+    adapter: results/adapters/b1_formats
+    router: true
+    prototypes: results/prototypes_b1_formats.npz
+    threshold: results/prototype_metrics_b1_formats.json
+    route_first_hop_only: true
+    max_agent_steps: 4
+    replicas: 1
+  B2fmteval:
+    description: one copy of every prompt format on the multi-format order adapter
+    adapter: results/adapters/b1_formats
+    router: true
+    prototypes: results/prototypes_b1_formats.npz
+    threshold: results/prototype_metrics_b1_formats.json
+    route_first_hop_only: true
+    max_agent_steps: 12
+    replicas: 1
   B2chain:
     description: route every hop from the transcript, including the tool call and the tool result
     adapter: results/adapters/b1

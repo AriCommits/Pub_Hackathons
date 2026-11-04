@@ -58,6 +58,11 @@ def test_default_trial_paths_and_runs():
     order_eval = trial.run_spec("B2ordereval")
     assert order_eval.max_agent_steps == 12
     assert order_eval.adapter == orders.adapter
+    formatted = trial.run_spec("B2fmt")
+    assert formatted.adapter == "results/adapters/b1_formats"
+    assert formatted.prototypes == "results/prototypes_b1_formats.npz"
+    assert formatted.max_agent_steps == 4
+    assert trial.run_spec("B2fmteval").max_agent_steps == 12
     chain = trial.run_spec("B2chain")
     assert chain.route_first_hop_only is False
     assert chain.max_agent_steps == 4

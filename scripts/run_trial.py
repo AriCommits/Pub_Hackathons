@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--run",
         required=True,
-        choices=["B0", "B1", "B2", "B2d1", "B2d1r", "B2d1log", "B2d1a", "B2d1ap", "B2apchain", "B2combo", "B2orders", "B2ordereval", "B2chain", "all"],
+        choices=["B0", "B1", "B2", "B2d1", "B2d1r", "B2d1log", "B2d1a", "B2d1ap", "B2apchain", "B2combo", "B2orders", "B2ordereval", "B2fmt", "B2fmteval", "B2chain", "all"],
         help="Which baseline(s) to execute with Tiny Aya (+ adapter/router per trial.yaml).",
     )
     add_trial_argument(parser)

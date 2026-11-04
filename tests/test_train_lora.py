@@ -16,6 +16,13 @@ def test_orders_flag_appends_the_curriculum(capsys):
     assert payload["output_dir"].endswith("b1_orders")
 
 
+def test_formats_flag_appends_every_prompt_layout(capsys):
+    assert train_lora.main(["--plan-only", "--formats", "--output-dir", "results/adapters/b1_formats"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["n_rows"] == 820
+    assert payload["output_dir"].endswith("b1_formats")
+
+
 def test_plan_only_default_stays_on_b1(capsys):
     assert train_lora.main(["--plan-only"]) == 0
     payload = json.loads(capsys.readouterr().out)

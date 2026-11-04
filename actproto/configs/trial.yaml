@@ -102,6 +102,24 @@ runs:
     route_first_hop_only: true
     max_agent_steps: 12
     replicas: 1
+  B2orders:
+    description: original test on the order-curriculum adapter and its prototypes
+    adapter: results/adapters/b1_orders
+    router: true
+    prototypes: results/prototypes_b1_orders.npz
+    threshold: results/prototype_metrics_b1_orders.json
+    route_first_hop_only: true
+    max_agent_steps: 4
+    replicas: 1
+  B2ordereval:
+    description: one copy of each curriculum order on the order-curriculum adapter
+    adapter: results/adapters/b1_orders
+    router: true
+    prototypes: results/prototypes_b1_orders.npz
+    threshold: results/prototype_metrics_b1_orders.json
+    route_first_hop_only: true
+    max_agent_steps: 12
+    replicas: 1
   B2chain:
     description: route every hop from the transcript, including the tool call and the tool result
     adapter: results/adapters/b1

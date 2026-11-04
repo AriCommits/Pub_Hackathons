@@ -50,6 +50,9 @@ python scripts/run_trial.py --run B2d1a    # depth-1 retry on that new adapter
 python scripts/run_trial.py --run B2d1log  # same episode as B2d1r, with arguments saved
 python scripts/query_arg_report.py         # classify query_database misses; does not train
 python scripts/run_trial.py --run B2chain  # route every hop from the transcript, 4 steps
+python scripts/train_lora.py --orders --output-dir results/adapters/b1_orders
+python scripts/run_trial.py --run B2orders      # original test, order-curriculum adapter, 4 steps
+python scripts/run_order_eval.py                # one copy of each curriculum order, 12 steps
 ```
 
 `B2d1r` and `B2chain` use the existing B1 adapter and prototypes. They write `results/b0_b2/B2d1r/` and `results/b0_b2/B2chain/` and do not replace B0, B1, B2, or B2d1.

@@ -51,6 +51,13 @@ def test_default_trial_paths_and_runs():
     assert apchain.prototypes == "results/prototypes_b1a.npz"
     assert apchain.route_first_hop_only is True
     assert apchain.max_agent_steps == 4
+    orders = trial.run_spec("B2orders")
+    assert orders.adapter == "results/adapters/b1_orders"
+    assert orders.prototypes == "results/prototypes_b1_orders.npz"
+    assert orders.max_agent_steps == 4
+    order_eval = trial.run_spec("B2ordereval")
+    assert order_eval.max_agent_steps == 12
+    assert order_eval.adapter == orders.adapter
     chain = trial.run_spec("B2chain")
     assert chain.route_first_hop_only is False
     assert chain.max_agent_steps == 4

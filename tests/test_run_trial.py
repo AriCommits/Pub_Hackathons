@@ -144,7 +144,8 @@ def test_followup_run_ids_are_cli_choices(monkeypatch):
     assert run_trial.main(["--run", "B2d1a"]) == 0
     assert run_trial.main(["--run", "B2d1ap"]) == 0
     assert run_trial.main(["--run", "B2apchain"]) == 0
-    assert calls == ["B2d1r", "B2chain", "B2d1log", "B2d1a", "B2d1ap", "B2apchain"]
+    assert run_trial.main(["--run", "B2orders"]) == 0
+    assert calls == ["B2d1r", "B2chain", "B2d1log", "B2d1a", "B2d1ap", "B2apchain", "B2orders"]
 
 
 def test_replica_limit_caps_detected_plan(monkeypatch):

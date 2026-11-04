@@ -25,12 +25,17 @@ def main(argv: list[str] | None = None) -> int:
     add_trial_argument(parser)
     parser.add_argument("--sft-config", default=None, help="Optional override for configs/sft.yaml")
     parser.add_argument("--output-dir", default=None, help="Adapter directory. Defaults to trial.yaml adapter_b1.")
+    parser.add_argument("--orders", action="store_true", help="Append the order curriculum (4 copies) to the train split.")
     parser.add_argument("--plan-only", action="store_true", help="Show training payload paths without loading weights.")
     args = parser.parse_args(argv)
     trial = trial_from_args(args)
     cfg = LoraSftConfig.load(args.sft_config)
     cfg.output_dir = args.output_dir or trial.paths.adapter_b1
     tasks = [t for t in generate_tasks() if t.split == "train"]
+    if args.orders:
+        from actproto.data.order_curriculum import order_tasks
+
+        tasks = tasks + order_tasks(4)
     payload = build_train_payload(tasks, cfg)
     payload["agenttune"] = try_agenttune_sft(payload.get("rows_preview") or [], trainer_factory=None)
     if args.plan_only:

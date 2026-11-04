@@ -105,10 +105,17 @@ def render_report(report: dict[str, Any]) -> str:
     return "\n".join(header + lines) + ("\n" if lines else "")
 
 
-def main() -> int:
-    report = json.loads(DEFAULT_EVAL.read_text(encoding="utf-8"))
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--eval", type=Path, default=DEFAULT_EVAL)
+    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    args = parser.parse_args(argv)
+    report = json.loads(args.eval.read_text(encoding="utf-8"))
     text = render_report(report)
-    DEFAULT_OUT.write_text(text, encoding="utf-8")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(text, encoding="utf-8")
     print(text, end="")
     return 0
 

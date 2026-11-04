@@ -8,14 +8,44 @@ from actproto.training.lora_config import LoraSftConfig
 from actproto.training.sft_dataset import tasks_to_sft_rows
 
 
+_GENERATION_NEEDLE = "<|START_RESPONSE|>{{ message['content'] }}<|END_RESPONSE|>"
+_GENERATION_MARKED = (
+    "<|START_RESPONSE|>{% generation %}{{ message['content'] }}{% endgeneration %}<|END_RESPONSE|>"
+)
+
+
+def _template_text(chat_template: Any) -> str:
+    """Return the default chat template string.
+
+    Tiny Aya stores the template as a named list. ``str(...)`` on that list
+    escapes quotes, so the generation needle never matches.
+    """
+    if isinstance(chat_template, str):
+        return chat_template
+    candidates: list[Any] = []
+    if isinstance(chat_template, dict):
+        for key in ("default", "tool_use"):
+            if key in chat_template:
+                candidates.append(chat_template[key])
+        candidates.extend(chat_template.values())
+    elif isinstance(chat_template, (list, tuple)):
+        candidates.extend(chat_template)
+    else:
+        return str(chat_template)
+    for item in candidates:
+        if isinstance(item, str) and "<|START_RESPONSE|>" in item:
+            return item
+        if isinstance(item, dict):
+            text = item.get("template") or item.get("chat_template")
+            if isinstance(text, str) and "<|START_RESPONSE|>" in text:
+                return text
+    return str(chat_template)
+
+
 def _with_generation_markers(template: str) -> str | None:
-    needle = "<|START_RESPONSE|>{{ message['content'] }}<|END_RESPONSE|>"
-    if needle not in template:
+    if _GENERATION_NEEDLE not in template:
         return None
-    return template.replace(
-        needle,
-        "<|START_RESPONSE|>{% generation %}{{ message['content'] }}{% endgeneration %}<|END_RESPONSE|>",
-    )
+    return template.replace(_GENERATION_NEEDLE, _GENERATION_MARKED)
 
 
 def run_lora_sft(tasks, config: LoraSftConfig, model_id: str, revision: str | None = None) -> dict[str, Any]:
@@ -32,7 +62,7 @@ def run_lora_sft(tasks, config: LoraSftConfig, model_id: str, revision: str | No
     system = {"role": "system", "content": system_prompt()}
     conversations = [messages_for_template([system, *row["messages"]]) for row in rows]
     tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
-    template = tokenizer.chat_template if isinstance(tokenizer.chat_template, str) else str(tokenizer.chat_template)
+    template = _template_text(tokenizer.chat_template)
     def _ntok(msgs: list) -> int:
         encoded = tokenizer.apply_chat_template(
             msgs, tokenize=True, add_generation_prompt=False, return_dict=True
@@ -97,13 +127,9 @@ def run_lora_sft(tasks, config: LoraSftConfig, model_id: str, revision: str | No
         trainer.train()
         trainer.save_model(config.output_dir)
 
-    try:
-        _fit(marked is not None)
-    except Exception as exc:
-        if marked is None:
-            raise
-        print(f"assistant-only loss failed ({exc}); retrying with loss on the full sequence", flush=True)
-        _fit(False)
+    if marked is None:
+        raise RuntimeError("assistant-only loss marker was not found in the chat template; refusing full-sequence loss")
+    _fit(True)
     return {
         "n_rows": len(rows),
         "output_dir": config.output_dir,

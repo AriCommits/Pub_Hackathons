@@ -45,7 +45,9 @@ Reports land under `results/b0_b2/{B0,B1,B2}/` (override in `trial.yaml`).
 
 ```bash
 python scripts/run_trial.py --run B2d1r    # depth-1 retry: route hop 1, then the model, 2 steps
-python scripts/run_trial.py --run B2d1log  # same episode, with arguments and tool JSON saved
+python scripts/train_lora.py --output-dir results/adapters/b1_assistant_only
+python scripts/run_trial.py --run B2d1a    # depth-1 retry on that new adapter
+python scripts/run_trial.py --run B2d1log  # same episode as B2d1r, with arguments saved
 python scripts/query_arg_report.py         # classify query_database misses; does not train
 python scripts/run_trial.py --run B2chain  # route every hop from the transcript, 4 steps
 ```

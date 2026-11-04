@@ -66,6 +66,15 @@ runs:
     route_first_hop_only: true
     max_agent_steps: 2
     replicas: 1
+  B2d1a:
+    description: depth-1 retry with the assistant-only adapter
+    adapter: results/adapters/b1_assistant_only
+    router: true
+    prototypes: results/prototypes.npz
+    threshold: results/prototype_metrics.json
+    route_first_hop_only: true
+    max_agent_steps: 2
+    replicas: 1
   B2chain:
     description: route every hop from the transcript, including the tool call and the tool result
     adapter: results/adapters/b1

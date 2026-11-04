@@ -31,9 +31,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Fit tool prototypes and a val-only abstention threshold.")
     add_trial_argument(parser)
     parser.add_argument("--eval-test", action="store_true")
+    parser.add_argument("--dump", default=None, help="Activation dump directory. Defaults to trial.yaml activations_dump.")
+    parser.add_argument("--prototypes", default=None, help="Output npz path. Defaults to prototypes.npz in prototypes_dir.")
+    parser.add_argument("--metrics", default=None, help="Output metrics json. Defaults to prototype_metrics.json.")
     args = parser.parse_args(argv)
     trial = trial_from_args(args)
-    dump = trial.resolve(trial.paths.activations_dump)
+    dump = Path(args.dump) if args.dump else trial.resolve(trial.paths.activations_dump)
     if dump is None or not dump.exists():
         raise SystemExit(f"activation dump not found: {dump}")
     vectors, index = read_dump(dump)
@@ -46,19 +49,21 @@ def main(argv: list[str] | None = None) -> int:
         prototypes,
         min_coverage=trial.prototype_fit.min_coverage,
     )
-    out = trial.resolve(trial.paths.prototypes_dir)
-    assert out is not None
-    out.mkdir(parents=True, exist_ok=True)
+    out_dir = trial.resolve(trial.paths.prototypes_dir)
+    assert out_dir is not None
+    proto_path = Path(args.prototypes) if args.prototypes else out_dir / "prototypes.npz"
+    metrics_path = Path(args.metrics) if args.metrics else trial.resolve(trial.paths.prototype_metrics())
+    assert metrics_path is not None
+    proto_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
     import numpy as np
 
-    np.savez(out / "prototypes.npz", **{k: v for k, v in prototypes.items()})
+    np.savez(proto_path, **{k: v for k, v in prototypes.items()})
     metrics = {"threshold": threshold, "n_prototypes": len(prototypes), "tools": sorted(prototypes)}
     if args.eval_test:
         test_v, test_y = _split(vectors, index, "test")
         acc = sum(rank_scores(cosine_scores(v, prototypes))["top1"] == y for v, y in zip(test_v, test_y))
         metrics["test_accuracy"] = acc / max(len(test_y), 1)
-    metrics_path = trial.resolve(trial.paths.prototype_metrics())
-    assert metrics_path is not None
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(json.dumps({k: metrics[k] for k in metrics if k != "threshold"} | {"threshold": threshold}, indent=2, default=str))
     return 0

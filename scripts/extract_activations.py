@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     add_trial_argument(parser)
     parser.add_argument("--split", default=None, help="train, val, test, or all (default: train)")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--adapter", default=None, help="Adapter directory. Defaults to trial.yaml adapter_b1.")
+    parser.add_argument("--out", default=None, help="Dump directory. Defaults to trial.yaml activations_dump.")
     parser.add_argument("--plan-only", action="store_true", help="Print planned paths and task count without loading weights.")
     args = parser.parse_args(argv)
     trial = trial_from_args(args)
@@ -35,7 +37,8 @@ def main(argv: list[str] | None = None) -> int:
             tasks = tasks[: args.limit]
     else:
         tasks = load_tasks(split, args.limit)
-    dump = trial.resolve(trial.paths.activations_dump)
+    adapter = args.adapter or trial.paths.adapter_b1
+    dump = Path(args.out) if args.out else trial.resolve(trial.paths.activations_dump)
     if args.plan_only:
         print(
             json.dumps(
@@ -43,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
                     "split": split,
                     "n_tasks": len(tasks),
                     "out": str(dump),
-                    "adapter": trial.paths.adapter_b1,
+                    "adapter": adapter,
                 },
                 indent=2,
             )
@@ -51,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     config = load_config(DEFAULT_CONFIG_PATH, MODEL_CONFIG_PATH)
-    config.adapter_path = trial.paths.adapter_b1
+    config.adapter_path = adapter
     loaded = load_model(config)
 
     def encode_fn(task: Task):

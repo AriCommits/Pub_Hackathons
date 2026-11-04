@@ -40,6 +40,17 @@ def test_default_trial_paths_and_runs():
     assert assistant.route_first_hop_only is True
     assert assistant.max_agent_steps == 2
     assert assistant.replicas == 1
+    paired = trial.run_spec("B2d1ap")
+    assert paired.adapter == "results/adapters/b1_assistant_only"
+    assert paired.prototypes == "results/prototypes_b1a.npz"
+    assert paired.threshold == "results/prototype_metrics_b1a.json"
+    assert paired.route_first_hop_only is True
+    assert paired.max_agent_steps == 2
+    apchain = trial.run_spec("B2apchain")
+    assert apchain.adapter == "results/adapters/b1_assistant_only"
+    assert apchain.prototypes == "results/prototypes_b1a.npz"
+    assert apchain.route_first_hop_only is True
+    assert apchain.max_agent_steps == 4
     chain = trial.run_spec("B2chain")
     assert chain.route_first_hop_only is False
     assert chain.max_agent_steps == 4

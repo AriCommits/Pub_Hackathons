@@ -75,3 +75,10 @@ def test_fabricated_answer_fails_state_assertion():
     assert averages["first_argument_correctness"] == 0.5
     assert averages["argument_correctness"] == 0.5
     assert "task_success" in averages
+    assert metrics["inventory-001"]["prompt"] == "Check inventory and ship item A if possible."
+    assert metrics["inventory-001"]["predicted_calls"][0] == {
+        "name": "lookup_record",
+        "arguments": {"record_id": "REC-001"},
+    }
+    assert metrics["inventory-001"]["gold_calls"][0]["arguments"] == {"record_id": "REC-001"}
+    assert metrics["inventory-001"]["tool_results"] == [{"raw": "in_stock=true"}]

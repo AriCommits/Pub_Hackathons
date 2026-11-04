@@ -30,6 +30,11 @@ def test_default_trial_paths_and_runs():
     assert b2d1r.max_agent_steps == 2
     assert b2d1r.replicas == 1
     assert b2d1r.adapter == "results/adapters/b1"
+    log_run = trial.run_spec("B2d1log")
+    assert log_run.route_first_hop_only is True
+    assert log_run.max_agent_steps == 2
+    assert log_run.replicas == 1
+    assert log_run.adapter == "results/adapters/b1"
     chain = trial.run_spec("B2chain")
     assert chain.route_first_hop_only is False
     assert chain.max_agent_steps == 4

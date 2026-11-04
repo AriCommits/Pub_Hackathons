@@ -57,6 +57,15 @@ runs:
     route_first_hop_only: true
     max_agent_steps: 2
     replicas: 1
+  B2d1log:
+    description: argument log of the depth-1 retry
+    adapter: results/adapters/b1
+    router: true
+    prototypes: results/prototypes.npz
+    threshold: results/prototype_metrics.json
+    route_first_hop_only: true
+    max_agent_steps: 2
+    replicas: 1
   B2chain:
     description: route every hop from the transcript, including the tool call and the tool result
     adapter: results/adapters/b1

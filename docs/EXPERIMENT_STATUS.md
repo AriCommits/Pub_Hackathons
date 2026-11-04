@@ -234,3 +234,9 @@ B2 rerun stalled: the RTX 4060 worker (pid 22068) held 7.9 GB at 0% GPU and 0 CP
 ## B2 depth-1 follow-up
 
 - `B2d1` completed on CUDA device 1 with one replica (`n=104`): first-tool accuracy **1.000** (matches saved B2 **1.000**), first-argument correctness **0.885**, verified task success **0.000**, and median latency **31.802 s**. Reports: `results/b0_b2/B2d1/eval.json` and `eval.md`.
+
+- `B2d1r` completed on CUDA device 1 with one replica (`n=104`): verified task success **68/104 (0.654)**, first-tool accuracy **1.000** (matches saved B2 **1.000**), first-argument correctness **0.625**, `multiple tool calls` parse errors **0**, median latency **3.883 s**. The other 36 failures are 35 answer mismatches and 1 `done: expected True got None`. Reports: `results/b0_b2/B2d1r/eval.json` and `eval.md`.
+
+- `B2chain` completed on CUDA device 1 with one replica (`n=104`): verified task success **36/104 (0.346)**, prefix tool choice **0.639**, first-tool accuracy **1.000**, repeated calls **0.019**, mean steps **2.66**, median latency **7.803 s**. Of the 6 length-3 tasks, hop 2 differs from hop 1 on **6/6** and matches gold on **0/6** (gold hop 2 is `calculator`; predicted hop 2 is `finish` or `lookup_record`). Reports: `results/b0_b2/B2chain/eval.json` and `eval.md`.
+
+- `B2d1log` completed on CUDA device 1 with one replica (`n=104`). Of 39 mismatched `query_database` calls, **21** are `wrong_value`, **15** are `missing_field` (a blank `region: ""` that the tool treats as a filter), and **3** are `unfilled`. The next experiment is an assistant-only adapter. This plan does not train it. Report: `docs/plan_4/query_arg_report.md`.

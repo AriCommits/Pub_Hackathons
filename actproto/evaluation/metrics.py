@@ -91,6 +91,21 @@ def unnecessary_calls(pred: list[str], gold: list[str]) -> int:
     return sum(1 for name in pred if name not in gold_set)
 
 
+def _tool_results(episode: Episode) -> list[Any]:
+    results: list[Any] = []
+    for msg in episode.messages:
+        if msg.get("role") != "tool":
+            continue
+        content = msg.get("content") or ""
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                content = {"raw": content}
+        results.append(content)
+    return results
+
+
 def score_episode(case: AgentCase, episode: Episode) -> dict[str, Any]:
     pred_calls = _predicted_calls(episode)
     gold_calls = _gold_calls(case)
@@ -125,6 +140,10 @@ def score_episode(case: AgentCase, episode: Episode) -> dict[str, Any]:
         "unnecessary_calls": unnecessary_calls(pred_names, gold_names),
         "predicted_tools": pred_names,
         "gold_tools": gold_names,
+        "predicted_calls": pred_calls,
+        "gold_calls": gold_calls,
+        "tool_results": _tool_results(episode),
+        "prompt": case.task,
     }
     if episode.latency_s is not None:
         scored["latency_s"] = episode.latency_s

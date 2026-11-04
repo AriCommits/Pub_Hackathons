@@ -18,8 +18,30 @@ from actproto.agent.router import route_vector
 from actproto.agent.schema_regen import regenerate_arguments
 from actproto.agent.strategy import AgentState, Policy, ReActStrategy
 from actproto.configs.schema import ExperimentConfig, load_default
+from actproto.tools.schemas import validate_args
+
+_FINISH_RETRY = "The finish answer must be non-empty. Emit one tool call."
 
 GenerateFn = Callable[[list[dict[str, Any]]], str]
+
+
+def _append_user_line(messages: list[dict[str, Any]], line: str) -> list[dict[str, Any]]:
+    copied = [dict(message) for message in messages]
+    if copied and copied[-1].get("role") == "user":
+        copied[-1]["content"] = f"{copied[-1]['content']}\n\n{line}"
+    else:
+        copied.append({"role": "user", "content": line})
+    return copied
+
+
+def _valid_finish(parsed: Any) -> bool:
+    if isinstance(parsed, ParseError) or parsed.name != "finish":
+        return False
+    answer = parsed.arguments.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        return False
+    ok, _reason = validate_args("finish", parsed.arguments)
+    return ok
 
 
 def routed_policy(
@@ -48,16 +70,20 @@ def routed_policy(
         if generate_fn is not None:
 
             def model_fn(_tool: str, _prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
-                messages = [dict(message) for message in messages_for_template(state.log.messages)]
                 prompt = argument_prompt(selected_tool, schema.get("properties", {}))
-                if messages and messages[-1].get("role") == "user":
-                    messages[-1]["content"] = f"{messages[-1]['content']}\n\n{prompt}"
-                else:
-                    messages.append({"role": "user", "content": prompt})
+                messages = _append_user_line(messages_for_template(state.log.messages), prompt)
                 parsed = parse_tool_call(generate_fn(messages))
-                if isinstance(parsed, ParseError) or parsed.name != selected_tool:
-                    return {"__invalid__": True}
-                return parsed.arguments
+                if selected_tool != "finish":
+                    if isinstance(parsed, ParseError) or parsed.name != selected_tool:
+                        return {"__invalid__": True}
+                    return parsed.arguments
+                if _valid_finish(parsed):
+                    return parsed.arguments
+                retry = _append_user_line(messages, _FINISH_RETRY)
+                parsed = parse_tool_call(generate_fn(retry))
+                if _valid_finish(parsed):
+                    return parsed.arguments
+                return {"__invalid__": True}
 
         args = regenerate_arguments(selected_tool, state.task, model_fn=model_fn)
         last_call = state.log.tool_results[-1] if state.log.tool_results else None

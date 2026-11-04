@@ -39,6 +39,17 @@ python scripts/compare_results.py
 
 Reports land under `results/b0_b2/{B0,B1,B2}/` (override in `trial.yaml`).
 
+## Follow-up runs
+
+`generate_text` stops after one closed `<tool_call>` block, or at `<|END_OF_TURN_TOKEN|>`. `--run all` still executes only B0, B1, and B2.
+
+```bash
+python scripts/run_trial.py --run B2d1r    # depth-1 retry: route hop 1, then the model, 2 steps
+python scripts/run_trial.py --run B2chain  # route every hop from the transcript, 4 steps
+```
+
+`B2d1r` and `B2chain` use the existing B1 adapter and prototypes. They write `results/b0_b2/B2d1r/` and `results/b0_b2/B2chain/` and do not replace B0, B1, B2, or B2d1.
+
 ## Layout
 
 ```

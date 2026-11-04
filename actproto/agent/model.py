@@ -53,6 +53,30 @@ def load_model(config: ExperimentConfig, device: str | None = None) -> LoadedMod
     return LoadedModel(tokenizer=tokenizer, model=model, config=config)
 
 
+def _tool_call_stopping_criteria(tokenizer: Any, prompt_len: int):
+    from actproto.agent.stop import completion_should_stop
+
+    def _stop(input_ids, scores, **kwargs):
+        new_ids = input_ids[0, prompt_len:]
+        text = tokenizer.decode(new_ids, skip_special_tokens=False)
+        return completion_should_stop(text)
+
+    try:
+        from transformers import StoppingCriteria, StoppingCriteriaList
+    except ImportError:
+        class _CallableCriteria(list):
+            def __call__(self, input_ids, scores, **kwargs):
+                return _stop(input_ids, scores, **kwargs)
+
+        return _CallableCriteria([_stop])
+
+    class _StopAfterOneToolCall(StoppingCriteria):
+        def __call__(self, input_ids, scores, **kwargs):
+            return _stop(input_ids, scores, **kwargs)
+
+    return StoppingCriteriaList([_StopAfterOneToolCall()])
+
+
 def _parameter_device(model: Any):
     try:
         return model.device
@@ -76,12 +100,15 @@ def generate_text(loaded: LoadedModel, messages: list[dict[str, Any]], max_new_t
     )
     device = _parameter_device(model)
     encoded = {k: v.to(device) for k, v in encoded.items() if hasattr(v, "to")}
+    prompt_len = int(encoded["input_ids"].shape[-1])
+    limit = max_new_tokens or loaded.config.max_new_tokens
     with torch.inference_mode():
         out = model.generate(
             **encoded,
-            max_new_tokens=max_new_tokens or loaded.config.max_new_tokens,
+            max_new_tokens=limit,
             do_sample=False,
             pad_token_id=tokenizer.pad_token_id,
+            stopping_criteria=_tool_call_stopping_criteria(tokenizer, prompt_len),
         )
     new_tokens = out[0, encoded["input_ids"].shape[-1] :]
     return tokenizer.decode(new_tokens, skip_special_tokens=True)

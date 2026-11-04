@@ -63,6 +63,7 @@ class RunSpec:
     threshold: str | None = None
     max_agent_steps: int | None = None
     replicas: int | None = None
+    route_first_hop_only: bool = False
 
 
 @dataclass

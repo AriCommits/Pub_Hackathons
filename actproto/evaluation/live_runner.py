@@ -53,6 +53,19 @@ def _encode_prompt(
     return {k: v.to(device) for k, v in encoded.items() if hasattr(v, "to")}
 
 
+def limit_to_first_hop(vector_fn: Callable[[Any], Any], route_first_hop_only: bool) -> Callable[[Any], Any]:
+    """Drop the router vector after step 0 when a run is depth-1 only."""
+    if not route_first_hop_only:
+        return vector_fn
+
+    def _limited(state: Any) -> Any:
+        if state.step > 0:
+            return None
+        return vector_fn(state)
+
+    return _limited
+
+
 def make_vector_fn(loaded: LoadedModel, config: ExperimentConfig) -> Callable[[Any], np.ndarray]:
     def _vector(state) -> np.ndarray:
         messages = messages_for_template(state.log.messages) if state.step > 0 else None
@@ -100,10 +113,7 @@ def build_live_project(run_id: str, trial: TrialConfig, loaded: LoadedModel) -> 
             threshold = Threshold.load(tpath)
 
     vector_fn = make_vector_fn(loaded, config)
-    if run_id == "B2d1":
-        routed_vector_fn = lambda state: vector_fn(state) if state.step == 0 else None
-    else:
-        routed_vector_fn = vector_fn
+    routed_vector_fn = limit_to_first_hop(vector_fn, spec.route_first_hop_only)
 
     return build_routed_project(
         config,

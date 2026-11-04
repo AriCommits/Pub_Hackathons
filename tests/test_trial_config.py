@@ -20,6 +20,22 @@ def test_default_trial_paths_and_runs():
     assert b2d1.router is True
     assert b2d1.max_agent_steps == 2
     assert b2d1.replicas == 1
+    assert b2d1.route_first_hop_only is True
+    for run_id in ("B0", "B1", "B2"):
+        spec = trial.run_spec(run_id)
+        assert spec.route_first_hop_only is False
+        assert spec.max_agent_steps is None
+    b2d1r = trial.run_spec("B2d1r")
+    assert b2d1r.route_first_hop_only is True
+    assert b2d1r.max_agent_steps == 2
+    assert b2d1r.replicas == 1
+    assert b2d1r.adapter == "results/adapters/b1"
+    chain = trial.run_spec("B2chain")
+    assert chain.route_first_hop_only is False
+    assert chain.max_agent_steps == 4
+    assert chain.replicas == 1
+    assert chain.router is True
+    assert chain.adapter == "results/adapters/b1"
 
 
 def test_hypothesis_defaults():

@@ -11,9 +11,9 @@ from actproto.evaluation.verification_v2 import verify
 from actproto.experiments.contracts import TaskSpec
 
 
-def example():
+def example(stratum='dependent'):
     env = build_environment(10)
-    item = _make_example(0, 'train', 'dependent', env, env.digest)
+    item = _make_example(0, 'train', stratum, env, env.digest)
     return env, item, TaskSpec.from_dict(item['task'])
 
 
@@ -33,7 +33,8 @@ def test_real_gold_execution_and_public_messages():
 
 
 def test_shortcut_fails_and_bad_output_is_visible():
-    env, item, task = example()
+    env, item, task = example('ordered_subset')
+    assert task.mode == 'required_tools' and task.tool_dependencies
     short = lambda messages: Generation(json.dumps({'name':'finish', 'arguments':{'answer': task.oracle['answer']}}), 1)
     trace, _ = rollout(task, env, short)
     assert verify(task, trace).answer_success and not verify(task, trace).verified_success_v2
@@ -73,3 +74,12 @@ def test_deployed_retry_logs_original_failure_and_extra_generation():
     assert trace.model_spans[1]['interventions'] == ['retry_parse']
     assert seen[1][-2]['content'] == 'bad output'
     assert not verify(task, trace).verified_success_v2
+
+
+def test_correct_finish_only_outcome_task_is_valid():
+    env, _, task = example()
+    assert task.mode == 'outcome'
+    policy = lambda messages: Generation(json.dumps({'name': 'finish',
+        'arguments': {'answer': task.oracle['answer']}}), 1)
+    trace, _ = rollout(task, env, policy)
+    assert verify(task, trace).verified_success_v2

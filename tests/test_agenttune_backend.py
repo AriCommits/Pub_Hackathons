@@ -134,3 +134,37 @@ def test_mismatched_sample_is_rejected_before_tool_execution():
                             generate, lambda name, args: calls.append(name))
     assert len(actions) == 1
     assert calls == []
+
+
+_AGENTTUNE = __import__("importlib").util.find_spec("agenttune")
+
+
+@pytest.mark.skipif(not _AGENTTUNE, reason="AgentTune is installed in the isolated RL environment")
+def test_bare_use_cpu_false_stays_rejected():
+    from actproto.integrations.agenttune_backend import create_trainer
+    with pytest.raises(BackendCompatibilityError, match="Only CPU trainer construction is currently verified"):
+        create_trainer(use_cpu=False)
+
+
+@pytest.mark.skipif(not _AGENTTUNE, reason="AgentTune is installed in the isolated RL environment")
+def test_omitted_use_cpu_stays_rejected():
+    from actproto.integrations.agenttune_backend import create_trainer
+    with pytest.raises(BackendCompatibilityError, match="Only CPU trainer construction is currently verified"):
+        create_trainer()
+
+
+@pytest.mark.skipif(not _AGENTTUNE, reason="AgentTune is installed in the isolated RL environment")
+def test_gpu_profile_passes_the_cpu_gate_and_rejects_vllm():
+    from actproto.integrations.agenttune_backend import create_trainer
+    with pytest.raises(BackendCompatibilityError, match="vLLM is outside the verified baseline"):
+        create_trainer(use_cpu=False, gpu_profile="grpo_v2_gpu", use_vllm=True)
+    with pytest.raises(BackendCompatibilityError, match="dataset"):
+        create_trainer(use_cpu=False, gpu_profile="grpo_v2_gpu", use_vllm=False)
+
+
+@pytest.mark.skipif(not _AGENTTUNE, reason="AgentTune is installed in the isolated RL environment")
+def test_cpu_construction_cannot_be_relabelled_as_the_gpu_profile():
+    from actproto.integrations.agenttune_backend import create_trainer
+    with pytest.raises(BackendCompatibilityError, match="use_cpu false"):
+        create_trainer(use_cpu=True, gpu_profile="grpo_v2_gpu")
+

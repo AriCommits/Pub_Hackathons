@@ -12,6 +12,11 @@ class GrpoConfigError(ValueError):
     """The requested GRPO run is outside the verified configuration."""
 
 
+GRPO_GPU_PROFILE = "grpo_v2_gpu"
+RTX_5060_TI_UUID = "134c34ef-c155-b001-4e3a-b9134b072c21"
+RTX_4060_UUID = "5b885e12-623f-268c-f07c-ee33db379969"
+
+
 _CPU_REQUIRED = {
     "schema_version": "grpo_v2",
     "reference_policy": "beta_zero",
@@ -23,7 +28,7 @@ _CPU_REQUIRED = {
     "gradient_checkpointing": False,
 }
 _GPU_REQUIRED = {
-    "schema_version": "grpo_v2_gpu",
+    "schema_version": GRPO_GPU_PROFILE,
     "reference_policy": "beta_zero",
     "use_cpu": False,
     "use_vllm": False,
@@ -38,8 +43,6 @@ _SHARED_KEYS = {
     "gradient_accumulation_steps", "max_completion_length", "temperature", "top_p",
     "max_steps", "seed", "output_dir", "baseline_manifest", "train_manifest",
 }
-RTX_5060_TI_UUID = "134c34ef-c155-b001-4e3a-b9134b072c21"
-RTX_4060_UUID = "5b885e12-623f-268c-f07c-ee33db379969"
 
 
 @dataclass(frozen=True)

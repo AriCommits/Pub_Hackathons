@@ -5,6 +5,8 @@ import importlib.metadata
 import inspect
 from typing import Any
 
+from actproto.training.rl_config import GRPO_GPU_PROFILE
+
 AGENTTUNE_VERSION = "1.1.3"
 TRL_VERSION = "1.7.1"
 
@@ -26,8 +28,21 @@ def validate_versions() -> dict[str, str]:
     return versions
 
 
+def _require_verified_device(use_cpu: Any, gpu_profile: Any) -> None:
+    """Allow use_cpu false only for the named GPU profile."""
+    if gpu_profile is None:
+        if use_cpu is not True:
+            raise BackendCompatibilityError("Only CPU trainer construction is currently verified")
+        return
+    if gpu_profile != GRPO_GPU_PROFILE:
+        raise BackendCompatibilityError(f"gpu_profile must be {GRPO_GPU_PROFILE}")
+    if use_cpu is not False:
+        raise BackendCompatibilityError("The grpo_v2_gpu profile requires use_cpu false")
+
+
 def create_trainer(**kwargs: Any) -> Any:
     """Construct the wrapper, refusing keys upstream would silently discard."""
+    gpu_profile = kwargs.pop("gpu_profile", None)
     validate_versions()
     validate_agenttune_source()
     from trl import GRPOConfig, GRPOTrainer
@@ -43,8 +58,7 @@ def create_trainer(**kwargs: Any) -> Any:
     rollout = kwargs.get("rollout_func")
     if rollout is not None and not isinstance(rollout, AgenticRolloutAdapter):
         raise BackendCompatibilityError("Only the explicit AgenticRolloutAdapter is supported")
-    if kwargs.get("use_cpu") is not True:
-        raise BackendCompatibilityError("Only CPU trainer construction is currently verified")
+    _require_verified_device(kwargs.get("use_cpu"), gpu_profile)
     if kwargs.get("use_vllm"):
         raise BackendCompatibilityError("vLLM is outside the verified baseline")
     if not kwargs.get("train_dataset"):

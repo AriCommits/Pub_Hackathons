@@ -399,3 +399,26 @@ def test_live_train_launch_masks_only_the_child(monkeypatch):
     assert os.environ.get("CUDA_VISIBLE_DEVICES") in (None, "")
     assert "--train" in seen["cmd"]
     assert "--live-gpu" in seen["cmd"]
+
+
+def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
+    from actproto.training import grpo_run
+
+    rewards = grpo_run._executed_trace_reward(["I will finish the task"])
+    assert rewards == [0.0]
+    conversational = grpo_run._executed_trace_reward(
+        [[{"role": "assistant", "content": "finish"}]],
+    )
+    assert conversational == [0.0]
+    assert all(reward <= 0 for reward in rewards)
+    assert "_executed_trace_reward" in grpo_run._train_tiny_aya.__code__.co_names
+    assert "_public_completion_reward" not in grpo_run._train_tiny_aya.__code__.co_names
+    assert "AgenticRolloutAdapter" in grpo_run._fit.__code__.co_names
+    assert "_executed_trace_reward" not in grpo_run._fit.__code__.co_names
+    assert "_public_completion_reward" not in grpo_run._fit.__code__.co_names
+    assert "AgenticRolloutAdapter" in grpo_run._gpu_attempt.__code__.co_names
+    assert "_executed_trace_reward" not in grpo_run._gpu_attempt.__code__.co_names
+    assert 0.0 in grpo_run._fit.__code__.co_consts
+    assert 0.0 in grpo_run._gpu_attempt.__code__.co_consts
+    with pytest.raises(GrpoConfigError, match="serialized rollout JSON"):
+        grpo_run._executed_trace_reward(["finish"], reward_sessions=[{"trace": "finish"}])

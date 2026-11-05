@@ -123,24 +123,20 @@ def _train_payload(*, global_step: int, baseline_loaded: bool, reference_model_b
     }
 
 
-def _completion_text(completion: object) -> str:
-    if isinstance(completion, str):
-        return completion
-    if isinstance(completion, list):
-        parts = []
-        for message in completion:
-            if isinstance(message, dict):
-                parts.append(str(message.get("content", "")))
-            else:
-                parts.append(str(message))
-        return "\n".join(parts)
-    return str(completion)
+def _executed_trace_reward(completions, reward_sessions=None, **kwargs):
+    """Score an in-process tool session. A finish string with no trace is not success.
 
-
-def _public_completion_reward(completions, **kwargs):
-    """Score public completions only. Extra trainer columns are ignored."""
+    Serialized rollout JSON is not execution evidence. Later sprints attach
+    ``bounded_shaped_v1`` once a live session is present; until then a missing
+    session is a non-positive reward and a supplied session is refused rather
+    than scored from the decoded text.
+    """
     del kwargs
-    return [1.0 if "finish" in _completion_text(item).lower() else 0.0 for item in completions]
+    if not reward_sessions:
+        return [0.0 for _ in completions]
+    if any(isinstance(session, (str, dict, list)) for session in reward_sessions):
+        raise GrpoConfigError("serialized rollout JSON is not execution evidence")
+    raise GrpoConfigError("executed traces are not scored until the shaped verifier is attached")
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -230,7 +226,7 @@ def _train_tiny_aya(
     wrapper = create_trainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=_public_completion_reward,
+        reward_funcs=_executed_trace_reward,
         train_dataset=Dataset.from_list(rows),
         callbacks=[StepLog()],
         output_dir=str(output_dir),

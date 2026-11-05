@@ -84,3 +84,67 @@ def episode_token_mask(tokenizer: Any, initial: list[dict], action: str,
         raise BackendCompatibilityError("Empty action or observation token span")
     return stages[-1], mask
 
+
+
+def assemble_episode_tokens(tokenizer: Any, initial: list[dict],
+                            decisions: list[tuple[str, list[int], str | None]]) -> tuple[list[int], list[int]]:
+    """Assemble rendered sampled tokens, marking only sampled policy tokens.
+
+    Each decision is (decoded action, exact sampled token IDs, observation).
+    The last decision has no observation. Reject any tokenization that rewrites
+    sampled history instead of silently training on a different context.
+    """
+    if not decisions or decisions[-1][2] is not None:
+        raise BackendCompatibilityError("Episode must end with a terminal decision")
+    messages = list(initial)
+    tokens = render_tokens(tokenizer, messages, generation=True)
+    mask = [0] * len(tokens)
+    for index, (action, sampled, observation) in enumerate(decisions):
+        if not sampled or (observation is None) != (index == len(decisions) - 1):
+            raise BackendCompatibilityError("Invalid sampled action or termination position")
+        messages.append({"role": "assistant", "content": action})
+        rendered = render_tokens(tokenizer, messages, generation=False)
+        expected = tokens + list(sampled)
+        if rendered[:len(expected)] != expected:
+            raise BackendCompatibilityError("Sampled action tokens do not match the rendered context")
+        mask.extend([1] * len(sampled))
+        mask.extend([0] * (len(rendered) - len(expected)))
+        tokens = rendered
+        if observation is not None:
+            messages.append({"role": "tool", "content": observation})
+            rendered = render_tokens(tokenizer, messages, generation=True)
+            if rendered[:len(tokens)] != tokens:
+                raise BackendCompatibilityError("Observation rewrites earlier sampled tokens")
+            mask.extend([0] * (len(rendered) - len(tokens)))
+            tokens = rendered
+    return tokens, mask
+
+
+def run_fixture_episode(tokenizer: Any, initial: list[dict], generate: Any,
+                        execute_tool: Any, *, max_decisions: int = 4) -> dict[str, Any]:
+    """Exercise the proposed template boundary with injected CPU fixtures.
+
+    This is a feasibility probe, not a production collector or optimizer.
+    """
+    from actproto.agent.inference_v2 import parse_single_call
+
+    if not 1 <= max_decisions <= 32:
+        raise BackendCompatibilityError("max_decisions must be between 1 and 32")
+    messages = list(initial)
+    decisions = []
+    observations = []
+    for _ in range(max_decisions):
+        prompt_ids = render_tokens(tokenizer, messages, generation=True)
+        action, sampled = generate(list(prompt_ids))
+        call = parse_single_call(action)
+        if call['name'] == 'finish':
+            decisions.append((action, list(sampled), None))
+            tokens, mask = assemble_episode_tokens(tokenizer, initial, decisions)
+            return {"token_ids": tokens, "policy_mask": mask,
+                    "observations": observations, "finish": call}
+        observation = str(execute_tool(call['name'], call['arguments']))
+        decisions.append((action, list(sampled), observation))
+        observations.append(observation)
+        messages.extend([{"role": "assistant", "content": action},
+                         {"role": "tool", "content": observation}])
+    raise BackendCompatibilityError("Episode exhausted its decision budget before finish")

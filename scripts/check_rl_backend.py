@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main() -> int:
-    from actproto.integrations.agenttune_backend import create_trainer, episode_token_mask, validate_versions
+    from actproto.integrations.agenttune_backend import create_trainer, episode_token_mask, run_fixture_episode, validate_versions
     from datasets import Dataset
     from tokenizers import Tokenizer, models, pre_tokenizers
     from transformers import AutoTokenizer, GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast
@@ -35,10 +35,45 @@ def main() -> int:
         if wrapper.trainer is None:
             raise RuntimeError("AgentTune did not construct its TRL trainer")
         trainer_type = type(wrapper.trainer).__module__ + "." + type(wrapper.trainer).__name__
+        # Check the installed wrapper and TRL really propagate an environment mask.
+        from agenttune.core.backend_factory import create_agentic_trainer
+        def fake_rollout(prompts, trainer):
+            n = len(prompts)
+            return {"prompt_ids": [[3]] * n, "completion_ids": [[3, 4, 3]] * n,
+                    "logprobs": [[0.0, 0.0, 0.0]] * n, "env_mask": [[1, 0, 1]] * n}
+        def distinct_rewards(completions, **kwargs):
+            return [float(i % 2) for i in range(len(completions))]
+        masked_wrapper = create_agentic_trainer("grpo", backend="trl", model=model,
+            processing_class=tokenizer, reward_funcs=distinct_rewards,
+            train_dataset=Dataset.from_dict({"prompt": ["hello", "world"]}),
+            rollout_func=fake_rollout, output_dir=output, num_generations=2,
+            per_device_train_batch_size=2, gradient_accumulation_steps=1,
+            bf16=False, fp16=False, report_to="none", use_cpu=True, beta=0.0)
+        masked_wrapper.setup_data()
+        masked_wrapper.setup_trainer()
+        scored = masked_wrapper.trainer._generate_and_score_completions(
+            [{"prompt": "hello"}, {"prompt": "world"}])
+        if scored["tool_mask"].tolist() != [[1, 0, 1], [1, 0, 1]]:
+            raise RuntimeError("TRL did not preserve the custom rollout environment mask")
     aya = AutoTokenizer.from_pretrained("CohereLabs/tiny-aya-global", local_files_only=True)
     ids, mask = episode_token_mask(aya, [{"role": "user", "content": "calculate 1+1"}],
         '<tool_call>{"name":"calculator","arguments":{"expression":"1+1"}}</tool_call>',
         "2", '<tool_call>{"name":"finish","arguments":{"answer":"2"}}</tool_call>')
+    fixture_actions = iter([
+        '<tool_call>{"name":"calculator","arguments":{"expression":"1+1"}}</tool_call>',
+        '<tool_call>{"name":"finish","arguments":{"answer":"2"}}</tool_call>',
+    ])
+    fixture_prompts = []
+    def fixture_generate(prompt_ids):
+        fixture_prompts.append(prompt_ids)
+        action = next(fixture_actions)
+        return action, aya.encode(action, add_special_tokens=False)
+    fixture = run_fixture_episode(aya, [{"role": "user", "content": "calculate 1+1"}],
+                                  fixture_generate, lambda name, arguments: "2")
+    if len(fixture_prompts) != 2 or fixture["finish"]["name"] != "finish":
+        raise RuntimeError("Fixture loop failed to terminate on finish")
+    if "Tool result:\n2" not in aya.decode(fixture_prompts[1]):
+        raise RuntimeError("Fixture did not feed the observation into the second prompt")
     from agenttune.agentic.rollout_engines.rollout_factory import create_rollout_fn
 
     class FakeEngine:
@@ -83,7 +118,7 @@ def main() -> int:
         raise RuntimeError("Backend did not mask any tool-result tokens")
     print(json.dumps({"versions": versions, "trainer": trainer_type, "tokens": len(ids),
                       "policy_tokens": sum(mask), "cuda_available": torch.cuda.is_available(),
-                      "rollout_mask_verified": False, "fake_engine_decisions": len(engine.seen), "raw_result_masked_tokens": mask_zero_count}, indent=2))
+                      "rollout_mask_verified": False, "fake_engine_decisions": len(engine.seen), "raw_result_masked_tokens": mask_zero_count, "fixture_decisions": len(fixture_prompts), "fixture_policy_tokens": sum(fixture["policy_mask"]), "custom_mask_reaches_trainer": True}, indent=2))
     # A constructed trainer and template probe do not establish backend loss masking.
     print("INCOMPLETE: actual tool-loop loss mask and GPU support remain unverified", file=sys.stderr)
     return 1
@@ -95,4 +130,6 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"Backend probe failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         raise SystemExit(1)
+
+
 

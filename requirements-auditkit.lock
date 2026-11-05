@@ -1,0 +1,2 @@
+# Core has no runtime dependencies. Immutable source revision tested with 1.1.3.
+auditkit @ git+https://github.com/Lexsi-Labs/AuditKIT.git@71316da345784ff220d5ed59337441a59ab31526

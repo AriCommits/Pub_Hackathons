@@ -1,0 +1,25 @@
+# CUDA RL environment recipe. Do not install this file with a single pip
+# command before the cu128 wheel is in place: a plain torch==2.11.0 pin
+# resolves to the CPU build on this machine.
+#
+# Interpreter: create the venv with the CPU RL Python 3.12.13, never with
+# C:\Python314\python.exe and never inside the supervised lexsi .venv.
+#
+#   C:\Users\arian\Github\Hackathons-worktrees\plan-10-rl-env\Scripts\python.exe -m venv C:\Users\arian\Github\Hackathons-worktrees\plan-10-rl-gpu-env
+#
+# 1. Install torch from the cu128 index before anything else:
+#   python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+# 2. Confirm torch.__version__ == "2.11.0+cu128" and torch.cuda.is_available() is True.
+# 3. Install AgentTune and TRL. If that step replaces torch with 2.11.0+cpu,
+#    repeat step 1 and confirm the CUDA build again.
+#   python -m pip install -r requirements-rl-gpu.txt
+#
+# requirements-rl.lock remains the CPU freeze. requirements-rl-gpu.lock is
+# the freeze of this env after the CUDA wheel has been verified.
+
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+trl==1.7.1
+agenttune @ git+https://github.com/Lexsi-Labs/AgentTune.git@d4db4c12d52342227c4113a70183d0f64aa2f345

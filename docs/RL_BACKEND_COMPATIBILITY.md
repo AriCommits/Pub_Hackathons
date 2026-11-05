@@ -17,3 +17,7 @@ AgentTune's default `create_rollout_fn` is unsuitable as-is. In a live fake-engi
 Source inspection shows the wrapper accepts a model, PEFT config, reward functions, callbacks and a custom rollout; its `train()` invokes `trainer.train(resume_from_checkpoint=...)` and then saves the model. The wrapper combines rewards. Our option validator currently rejects the wrapper-only resume parameter pending lifecycle tests. TRL with `beta=0` creates no reference model. With PEFT and nonzero beta it uses a `ref` adapter if present, otherwise disables the adapter; that is not automatically the selected SFT reference. Verify its actual identity before use. Logging, checkpoint resume, loss gradients and the reference policy have not been experimentally validated here.
 
 Plan 9 S7 has not produced the frozen SFT baseline, so real optimization is independently blocked by the plan's cross-plan gate. No train, pilot or evaluation results are claimed here.
+
+## CUDA interpreter
+
+A second RL environment, `C:\Users\arian\Github\Hackathons-worktrees\plan-10-rl-gpu-env`, installs torch `2.11.0+cu128` from the cu128 wheel index, the same AgentTune commit, and TRL 1.7.1. `docs/RL_GPU_ENV.md` and `requirements-rl-gpu.lock` record that stack. The CPU environment above remains the interpreter for `results/rl_v2/grpo_cpu_smoke`. Installing the CUDA environment does not by itself record a CUDA LoRA step or a Tiny Aya memory measurement. Those numbers stay out of this file until the runs that produce them. Tiny Aya GRPO, a frozen SFT reference, and vLLM stay unverified.

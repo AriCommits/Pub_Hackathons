@@ -19,6 +19,8 @@ python -m pip install -e ".[train]"   # GPU train / live infer
 huggingface-cli login                   # HF_TOKEN for Tiny Aya
 ```
 
+GRPO uses two more interpreters, both outside this supervised `.venv`. The CPU AgentTune environment runs the already-verified mechanics smoke. A separate CUDA environment (torch `2.11.0+cu128`, AgentTune 1.1.3, TRL 1.7.1) is the one for new GPU GRPO work. The recipe is `requirements-rl-gpu.txt`; the freeze is `requirements-rl-gpu.lock`. Paths and the device-print command are in [`docs/RL_GPU_ENV.md`](docs/RL_GPU_ENV.md). Do not point that environment at `C:\Python314\python.exe` or reinstall the supervised venv.
+
 ## Trial config (paths + B0–B2)
 
 Edit **`actproto/configs/trial.yaml`** for artifact paths, eval split, and run definitions. See **`docs/TRIAL_CONFIG.md`** for the full map.

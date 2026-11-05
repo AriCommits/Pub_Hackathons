@@ -1,0 +1,25 @@
+schema_version: tooluse_v2
+dataset:
+  seed: 42
+  quotas: {train: 1200, val: 200, test: 400}
+  final_test: {new_entity: 200, held_out_family: 200}
+  strata_fraction: {single_tool: 0.25, dependent: 0.35, ordered_subset: 0.25, recovery_no_tool: 0.15}
+  split_groups_together: true
+  hold_out_entities_and_tuples: true
+  hold_out_composition_and_prompt_families_for_stress: true
+selection:
+  primary: macro_verified_success_v2
+  minimum_improvement: 0.05
+  maximum_single_or_no_tool_loss: 0.02
+  maximum_median_latency_ratio: 1.5
+  efficiency_noninferiority_margin: 0.02
+  uncertainty: paired_group_clustered_bootstrap
+  split: val
+  final_test_locked: true
+inference:
+  router: false
+  semantic_fallback: false
+  deterministic: true
+  max_generated_tokens_per_call: 256
+  call_budgets: {short: 4, medium: 8, long: 12}
+  finish_counts_as_call: true

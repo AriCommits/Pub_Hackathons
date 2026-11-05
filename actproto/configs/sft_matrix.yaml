@@ -1,0 +1,14 @@
+schema_version: tooluse_v2
+primary:
+  mode: primary
+  router: false
+  semantic_fallback: false
+  max_new_tokens: 256
+  do_sample: false
+deployed:
+  mode: deployed
+  router: false
+  semantic_fallback: false
+  max_new_tokens: 256
+  do_sample: false
+  interventions: [retry_parse]

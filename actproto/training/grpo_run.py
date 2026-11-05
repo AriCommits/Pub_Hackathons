@@ -101,6 +101,8 @@ def run_train(
         adapter,
         max_steps=steps,
         adapter_sha256=str(manifest["adapter_sha256"]),
+        tasks=tasks,
+        train_manifest=train_path,
     )
 
 
@@ -121,6 +123,93 @@ def _train_payload(*, global_step: int, baseline_loaded: bool, reference_model_b
         "reference_model_built": False,
         "global_step": global_step,
     }
+
+
+HISTORICAL_RUNS = {"grpo_gpu_e2", "grpo_gpu_smoke", "grpo_cpu_smoke"}
+TRAIN_EPISODE_DEADLINE_SECONDS = 120.0
+
+
+def refuse_historical_output(output_dir: Path) -> None:
+    """Keep a tool-reward run from replacing the frozen e2 run or the smokes."""
+    if output_dir.name in HISTORICAL_RUNS:
+        raise GrpoConfigError("tool-reward training must use a new results/rl_v2 directory")
+
+
+def _sample_peft_action(model, tokenizer, prompt_ids, *, temperature, top_p, max_new_tokens):
+    """Sample one decision from the loaded policy and return its sampling logprobs.
+
+    ``output.scores`` are the post-warper logits from ``generate``, so the log
+    probability is a log-softmax of those scores. Temperature and top-p are
+    applied by ``generate`` and are not applied a second time here.
+    """
+    import torch
+
+    from actproto.agent.model import _parameter_device, _tool_call_stopping_criteria
+
+    if isinstance(max_new_tokens, bool) or not isinstance(max_new_tokens, int) or not 1 <= max_new_tokens <= 256:
+        raise GrpoConfigError("max_new_tokens must be between 1 and 256")
+    if temperature <= 0 or top_p <= 0 or top_p > 1:
+        raise GrpoConfigError("sampling temperature and top_p are outside the study range")
+    device = _parameter_device(model)
+    input_ids = torch.tensor([list(prompt_ids)], dtype=torch.long, device=device)
+    attention = torch.ones_like(input_ids)
+    with torch.inference_mode():
+        output = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=float(temperature),
+            top_p=float(top_p),
+            return_dict_in_generate=True,
+            output_scores=True,
+            pad_token_id=tokenizer.pad_token_id,
+            stopping_criteria=_tool_call_stopping_criteria(tokenizer, int(input_ids.shape[-1])),
+        )
+    new_ids = output.sequences[0, input_ids.shape[-1]:].tolist()
+    scores = tuple(output.scores)
+    kept: list[int] = []
+    logprobs: list[float] = []
+    for index, token_id in enumerate(new_ids):
+        if token_id == tokenizer.eos_token_id or token_id == tokenizer.pad_token_id or index >= len(scores):
+            break
+        distribution = torch.log_softmax(scores[index][0].float(), dim=-1)
+        logprobs.append(float(distribution[token_id]))
+        kept.append(int(token_id))
+    if not kept or not all(value == value and abs(value) != float("inf") for value in logprobs):
+        raise GrpoConfigError("policy sample produced no finite tokens")
+    text = tokenizer.decode(kept, skip_special_tokens=True)
+    return text, kept, logprobs, len(kept) >= max_new_tokens
+
+
+def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
+    """Build the in-process tool rollout. The sampler is the loaded policy."""
+    from actproto.training.rl_rollouts import BehaviorToolRollout, PolicySample
+
+    if config.max_completion_length > 256:
+        raise GrpoConfigError("max_completion_length must stay at most 256")
+
+    def policy_factory(local_seed, trainer):
+        del local_seed
+        active = model if trainer is None or getattr(trainer, "model", None) is None else trainer.model
+
+        def policy(prompt_ids, remaining):
+            text, token_ids, logprobs, truncated = _sample_peft_action(
+                active, tokenizer, prompt_ids,
+                temperature=config.temperature, top_p=config.top_p,
+                max_new_tokens=min(int(remaining), config.max_completion_length),
+            )
+            return PolicySample(text, token_ids, logprobs, truncated)
+
+        return policy
+
+    return BehaviorToolRollout(
+        tokenizer, tasks, policy_factory, lambda: scope,
+        deadline_seconds=TRAIN_EPISODE_DEADLINE_SECONDS,
+        max_generated_tokens=config.max_completion_length,
+        seed=config.seed,
+        run_id=run_id,
+    )
 
 
 def _executed_trace_reward(completions, reward_sessions=None, **kwargs):
@@ -165,8 +254,11 @@ def _train_tiny_aya(
     *,
     max_steps: int,
     adapter_sha256: str,
+    tasks: list,
+    train_manifest: Path,
 ) -> dict:
     """One bounded bf16 GRPO run from the frozen adapter. An OOM is recorded once."""
+    refuse_historical_output(output_dir)
     import yaml
 
     sft = yaml.safe_load((project_root / "actproto" / "configs" / "sft_v2.yaml").read_text(encoding="utf-8"))
@@ -222,12 +314,17 @@ def _train_tiny_aya(
             del args, control, kwargs
             print(f"global_step={state.global_step}", flush=True)
 
+    from actproto.training.rl_dataset import VerifiedTrainFixtures
+
+    scope = VerifiedTrainFixtures(train_manifest)
+    rollout = _study_rollout(model, tokenizer, tasks, scope, config, output_dir.name)
     torch.manual_seed(config.seed)
     wrapper = create_trainer(
         model=model,
         processing_class=tokenizer,
         reward_funcs=_executed_trace_reward,
         train_dataset=Dataset.from_list(rows),
+        rollout_func=rollout,
         callbacks=[StepLog()],
         output_dir=str(output_dir),
         num_generations=config.num_generations,

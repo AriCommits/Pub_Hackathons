@@ -14,7 +14,7 @@ from typing import Any, Callable
 from actproto.agent.inference_v2 import parse_single_call
 from actproto.agent.prompts import system_prompt
 from actproto.experiments.contracts import ExecutionTrace, TaskSpec
-from actproto.integrations.agenttune_backend import render_tokens
+from actproto.integrations.agenttune_backend import AgenticRolloutAdapter, render_tokens
 from actproto.tools.schemas import validate_args
 from actproto.training.rl_tools import new_session
 
@@ -327,6 +327,260 @@ def append_batch_event(path: str | Path, event: dict[str, Any]) -> int:
     return 1
 
 
+@dataclass
+class BehaviorEpisode:
+    """In-process episode. The session is the scoreable evidence, not the trace dict."""
+    prompt_ids: list[int]
+    completion_ids: list[int]
+    logprobs: list[float]
+    env_mask: list[int]
+    session: Any
+    completion_reason: str
+
+
+def _positive_deadline(value: object) -> bool:
+    return (not isinstance(value, bool) and isinstance(value, (int, float))
+            and math.isfinite(float(value)) and float(value) > 0)
+
+
+def _public_user_text(prompt: Any) -> str:
+    if isinstance(prompt, str) and prompt:
+        return prompt
+    if isinstance(prompt, list):
+        users = [message.get("content") for message in prompt
+                 if isinstance(message, dict) and message.get("role") == "user"
+                 and isinstance(message.get("content"), str) and message.get("content")]
+        if len(users) == 1:
+            return users[0]
+    raise ValueError("trainer must provide one public user prompt")
+
+
+def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Callable,
+                                 environment_factory: Callable, deadline_seconds: float,
+                                 max_generated_tokens: int = 256, session=None,
+                                 clock: Callable[[], float] | None = None) -> BehaviorEpisode:
+    """Execute one train episode on a fresh scoped harness and keep the live session.
+
+    A deadline is required. Timeout, truncation, a parse failure, and an exhausted
+    decision cap are invalid attempts. They are not a successful finish. The
+    caller cannot supply the session or a serialized trace.
+    """
+    from actproto.training.rewards_v2 import TrustedRewardSession
+    from actproto.agent.harness import ToolResult
+
+    if session is not None:
+        raise ValueError("caller-supplied sessions are not permitted")
+    if not _positive_deadline(deadline_seconds):
+        raise ValueError("behavior collection requires a hard-deadline executor; only synthetic fixtures are supported")
+    if max_generated_tokens < 1 or max_generated_tokens > 256:
+        raise ValueError("max_generated_tokens must be between 1 and 256")
+    if task.split != "train" or not task.prompt:
+        raise ValueError("only public training tasks may be rolled out")
+    tool_session = new_session(task, environment_factory, allow_unscoped_fixture=False)
+
+    class _Harness:
+        @property
+        def final_state(self):
+            return tool_session.state
+
+        def execute(self, name, arguments):
+            output = tool_session.call(name, arguments)
+            return ToolResult(name, deepcopy(arguments), output)
+
+    reward = TrustedRewardSession(task, _Harness())
+    now = clock or monotonic
+    started = now()
+    messages = [{"role": "system", "content": system_prompt()}, {"role": "user", "content": task.prompt}]
+    token_ids = list(render_tokens(tokenizer, messages, generation=True))
+    policy_mask = [0] * len(token_ids)
+    aligned: list[float | None] = [None] * len(token_ids)
+    prompt_length = len(token_ids)
+    generated_tokens = 0
+    completion = "budget_exhausted"
+    decision_cap = max(int(task.call_budget), 2)
+
+    def _append_sample(sample: PolicySample, prompt_ids: list[int]) -> None:
+        nonlocal token_ids, policy_mask, aligned, generated_tokens
+        rendered = render_tokens(tokenizer, messages + [{"role": "assistant", "content": sample.text}], generation=False)
+        if rendered[:len(prompt_ids) + len(sample.token_ids)] != prompt_ids + list(sample.token_ids):
+            raise ValueError("template_mismatch")
+        token_ids.extend(sample.token_ids)
+        policy_mask.extend([1] * len(sample.token_ids))
+        aligned.extend(list(sample.logprobs))
+        padding = rendered[len(token_ids):]
+        token_ids.extend(padding)
+        policy_mask.extend([0] * len(padding))
+        aligned.extend([None] * len(padding))
+        generated_tokens += len(sample.token_ids)
+        messages.append({"role": "assistant", "content": sample.text})
+
+    def _append_observation(output: dict) -> None:
+        nonlocal token_ids, policy_mask, aligned
+        messages.append({"role": "tool", "content": json.dumps(output, sort_keys=True)})
+        rendered = render_tokens(tokenizer, messages, generation=True)
+        if rendered[:len(token_ids)] != token_ids:
+            raise ValueError("template_mismatch")
+        added = rendered[len(token_ids):]
+        token_ids.extend(added)
+        policy_mask.extend([0] * len(added))
+        aligned.extend([None] * len(added))
+
+    for _ in range(decision_cap):
+        if now() - started >= float(deadline_seconds):
+            reward.invalid_attempt("timeout")
+            completion = "timeout"
+            break
+        remaining = max_generated_tokens - generated_tokens
+        if remaining <= 0:
+            reward.invalid_attempt("truncation")
+            completion = "truncated"
+            break
+        prompt_ids = render_tokens(tokenizer, messages, generation=True)
+        if prompt_ids != token_ids:
+            reward.invalid_attempt("template_mismatch")
+            completion = "template_mismatch"
+            break
+        try:
+            sample = policy(list(prompt_ids), remaining)
+        except Exception as exc:
+            reward.invalid_attempt(f"policy_error: {exc}")
+            completion = "policy_error"
+            break
+        if now() - started >= float(deadline_seconds):
+            reward.invalid_attempt("timeout")
+            completion = "timeout"
+            break
+        if not isinstance(sample, PolicySample) or not isinstance(sample.text, str):
+            reward.invalid_attempt("policy_error")
+            completion = "policy_error"
+            break
+        ids = sample.token_ids
+        probs = sample.logprobs
+        valid_probs = (isinstance(probs, (list, tuple)) and len(probs) == len(ids)
+                       and all(not isinstance(item, bool) and isinstance(item, (int, float)) and math.isfinite(item)
+                               for item in probs))
+        if (not isinstance(ids, list) or not ids or any(type(item) is not int or item < 0 for item in ids)
+                or not valid_probs):
+            reward.invalid_attempt("policy_error")
+            completion = "policy_error"
+            break
+        if len(ids) > remaining or sample.truncated:
+            try:
+                _append_sample(sample, prompt_ids)
+            except ValueError:
+                reward.invalid_attempt("template_mismatch")
+                completion = "template_mismatch"
+                break
+            reward.invalid_attempt("truncation")
+            completion = "truncated"
+            break
+        try:
+            _append_sample(sample, prompt_ids)
+        except ValueError:
+            reward.invalid_attempt("template_mismatch")
+            completion = "template_mismatch"
+            break
+        try:
+            call = parse_single_call(sample.text)
+            valid, reason = validate_args(call["name"], call["arguments"])
+            if not valid:
+                raise ValueError(reason)
+        except (ValueError, TypeError) as exc:
+            reward.invalid_attempt(f"parse_error: {exc}")
+            completion = "parse_error"
+            break
+        if now() - started >= float(deadline_seconds):
+            reward.invalid_attempt("timeout")
+            completion = "timeout"
+            break
+        output = reward.execute(call["name"], call["arguments"])
+        if call["name"] in ("finish", "no_tool") and isinstance(output, dict) and output.get("ok") is True:
+            completion = "finish"
+            break
+        try:
+            _append_observation(output)
+        except ValueError:
+            reward.invalid_attempt("template_mismatch")
+            completion = "template_mismatch"
+            break
+    else:
+        reward.invalid_attempt("budget_exhausted")
+        completion = "budget_exhausted"
+    if not any(policy_mask):
+        raise ValueError("behavior episode produced no policy tokens")
+    completion_ids = token_ids[prompt_length:]
+    mask = policy_mask[prompt_length:]
+    logprobs = [float(value) if value is not None else 0.0 for value in aligned[prompt_length:]]
+    if not completion_ids or len(completion_ids) != len(mask) or len(mask) != len(logprobs):
+        raise ValueError("behavior episode token alignment failed")
+    return BehaviorEpisode(token_ids[:prompt_length], completion_ids, logprobs, mask, reward, completion)
+
+
+class BehaviorToolRollout(AgenticRolloutAdapter):
+    """Trainer callback that samples a policy and executes train-task tools in-process."""
+
+    def __init__(self, tokenizer, tasks, policy_factory, environment_factory, *, deadline_seconds,
+                 max_generated_tokens=256, seed=42, run_id="grpo-tools"):
+        if not _positive_deadline(deadline_seconds):
+            raise ValueError("behavior collection requires a hard-deadline executor; only synthetic fixtures are supported")
+        if not callable(policy_factory) or not callable(environment_factory):
+            raise ValueError("behavior rollout requires a policy and a scoped environment factory")
+        super().__init__(tokenizer, self._refuse_smoke_policy, self._refuse_smoke_execute, max_decisions=2)
+        self.tasks = {}
+        for task in tasks:
+            if task.split != "train" or not task.prompt or task.prompt in self.tasks or not task.task_id:
+                raise ValueError("training prompts and task IDs must be nonempty and unique")
+            self.tasks[task.prompt] = task
+        if not self.tasks:
+            raise ValueError("training task list is empty")
+        self.policy_factory = policy_factory
+        self.environment_factory = environment_factory
+        self.deadline_seconds = float(deadline_seconds)
+        self.max_generated_tokens = max_generated_tokens
+        self.seed = seed
+        self.run_id = run_id
+
+    @staticmethod
+    def _refuse_smoke_policy(prompt_ids, trainer):
+        del prompt_ids, trainer
+        raise RuntimeError("the study rollout does not use the smoke policy")
+
+    @staticmethod
+    def _refuse_smoke_execute(name, arguments):
+        del name, arguments
+        raise RuntimeError("the study rollout does not use the smoke executor")
+
+    def __call__(self, prompts, trainer):
+        if not isinstance(prompts, list) or not prompts:
+            raise ValueError("trainer must provide a nonempty batch of public prompts")
+        result = {key: [] for key in ("prompt_ids", "completion_ids", "logprobs", "env_mask",
+                                       "reward_sessions", "completion_reasons")}
+        for index, prompt in enumerate(prompts):
+            text = _public_user_text(prompt)
+            task = self.tasks.get(text)
+            if task is None:
+                raise ValueError("public prompt does not match a train task")
+            encoded = json.dumps(prompt)
+            secret = json.dumps(task.oracle, sort_keys=True)
+            if secret and secret in encoded:
+                raise ValueError("training prompt leaked private oracle data")
+            local_seed = rollout_seed(self.run_id, task.task_id, 0, index, self.seed)
+            policy = self.policy_factory(local_seed, trainer)
+            episode = run_trusted_behavior_episode(
+                task, tokenizer=self.tokenizer, policy=policy,
+                environment_factory=self.environment_factory,
+                deadline_seconds=self.deadline_seconds,
+                max_generated_tokens=self.max_generated_tokens,
+            )
+            result["prompt_ids"].append(episode.prompt_ids)
+            result["completion_ids"].append(episode.completion_ids)
+            result["logprobs"].append(episode.logprobs)
+            result["env_mask"].append(episode.env_mask)
+            result["reward_sessions"].append(episode.session)
+            result["completion_reasons"].append(episode.completion_reason)
+        return result
+
+
 class TrustedRolloutAdapter:
     """Synthetic-only adapter with durable batch and group audit journals.
 
@@ -335,12 +589,25 @@ class TrustedRolloutAdapter:
     resolved and skipped, even if all its records exist and ready was written.
     """
     def __new__(cls, tokenizer, tasks, policy_factory, environment_factory, *, run_id,
-                policy_hash, record_sink, group_size=2, seed=42, max_generated_tokens=512,
+                policy_hash, record_sink=None, group_size=2, seed=42, max_generated_tokens=512,
                 max_seconds=60, resume_records=None, resume_batch_events=None,
-                sampling_mode='behavior', abandonment_sink=None, batch_event_sink=None):
+                sampling_mode='behavior', abandonment_sink=None, batch_event_sink=None,
+                trainer_callback=False, deadline_seconds=None):
         from actproto.integrations.agenttune_backend import AgenticRolloutAdapter
         import weakref
 
+        if sampling_mode == 'behavior':
+            if trainer_callback is not True or not _positive_deadline(deadline_seconds):
+                raise ValueError('behavior collection requires a hard-deadline executor; only synthetic fixtures are supported')
+            if resume_records or resume_batch_events:
+                raise ValueError('deserialized JSON is not execution evidence')
+            if max_generated_tokens > 256:
+                max_generated_tokens = 256
+            return BehaviorToolRollout(
+                tokenizer, tasks, policy_factory, environment_factory,
+                deadline_seconds=deadline_seconds, max_generated_tokens=max_generated_tokens,
+                seed=seed, run_id=run_id,
+            )
         if group_size < 2 or not callable(record_sink):
             raise ValueError('group_size >= 2 and a durable record sink are required')
         if sampling_mode not in {'behavior', 'synthetic_fixture'}:

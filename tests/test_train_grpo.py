@@ -1,7 +1,9 @@
+import inspect
 import json
 import os
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -422,3 +424,106 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
     assert 0.0 in grpo_run._gpu_attempt.__code__.co_consts
     with pytest.raises(GrpoConfigError, match="serialized rollout JSON"):
         grpo_run._executed_trace_reward(["finish"], reward_sessions=[{"trace": "finish"}])
+    assert "_study_rollout" in grpo_run._train_tiny_aya.__code__.co_names
+    assert "rollout_func=rollout" in inspect.getsource(grpo_run._train_tiny_aya)
+    assert "_study_rollout" not in grpo_run._fit.__code__.co_names
+    assert "_study_rollout" not in grpo_run._gpu_attempt.__code__.co_names
+
+
+def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeypatch):
+    import json
+
+    from actproto.integrations.agenttune_backend import AgenticRolloutAdapter
+    from actproto.training import grpo_run
+    from actproto.training.rewards_v2 import SHAPED_VERSION
+    from actproto.training.rl_dataset import VerifiedTrainFixtures
+
+    class CharacterTokenizer:
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt):
+            text = "".join(f"<{message['role']}>{message['content']}</{message['role']}>" for message in messages)
+            if add_generation_prompt:
+                text += "<assistant>"
+            return list(map(ord, text))
+
+    class StatefulEnvironment:
+        identifier = "env"
+        digest = "hash"
+        def call(self, environment_id, name, arguments):
+            if name == "calculator":
+                return {"ok": True, "data": {"value": 2}}
+            if name == "finish":
+                return {"ok": True, "data": {"answer": arguments["answer"], "done": True}}
+            return {"ok": False, "error": {"type": "not_found", "message": "missing"}}
+
+    spec = TaskSpec("t", "g", "train", "What is 1+1?", "outcome", {"answer": "2"}, [],
+                    {"type": "exact"}, 2, "env", "hash")
+    scope = object.__new__(VerifiedTrainFixtures)
+    scope._tasks = {spec.task_id: spec}
+
+    def for_task(task):
+        if scope._tasks.get(task.task_id) != task:
+            raise ValueError("task is not the manifest-bound training task")
+        return StatefulEnvironment()
+
+    scope.for_task = for_task
+    seen = []
+
+    def fake_sample(model, tokenizer, prompt_ids, **kwargs):
+        del tokenizer, kwargs
+        seen.append(model)
+        text = "".join(map(chr, prompt_ids))
+        action = {"name": "finish", "arguments": {"answer": "2"}} if "Tool result:" in text else {
+            "name": "calculator", "arguments": {"expression": "1+1"},
+        }
+        raw = json.dumps(action, separators=(",", ":"))
+        ids = list(map(ord, raw))
+        return raw, ids, [-0.2] * len(ids), False
+
+    monkeypatch.setattr(grpo_run, "_sample_peft_action", fake_sample)
+    config = load_grpo_config(E2_CONFIG)
+    rollout = grpo_run._study_rollout("loaded-peft", CharacterTokenizer(), [spec], scope, config, "grpo_gpu_tools")
+    assert isinstance(rollout, AgenticRolloutAdapter)
+    result = rollout([[{"role": "user", "content": spec.prompt}]], trainer=SimpleNamespace(model="trainer-policy"))
+    assert seen == ["trainer-policy", "trainer-policy"]
+    ledger = result["reward_sessions"][0].score(completion_reason=result["completion_reasons"][0], version=SHAPED_VERSION)
+    assert result["completion_reasons"] == ["finish"]
+    assert ledger.verified_success is True
+    assert [event["tool"] for event in result["reward_sessions"][0].captured_tool_events()] == ["calculator", "finish"]
+    with pytest.raises(GrpoConfigError, match="new results"):
+        grpo_run.refuse_historical_output(Path("results/rl_v2/grpo_gpu_e2"))
+    with pytest.raises(GrpoConfigError, match="new results"):
+        grpo_run.refuse_historical_output(Path("results/rl_v2/grpo_gpu_smoke"))
+
+
+def test_peft_sampler_logprobs_follow_returned_scores():
+    torch = pytest.importorskip("torch")
+
+    class Tokenizer:
+        eos_token_id = 1
+        pad_token_id = 0
+        def decode(self, ids, skip_special_tokens=True):
+            del skip_special_tokens
+            return "call"
+
+    class Model:
+        def parameters(self):
+            yield torch.zeros(1)
+        def generate(self, **kwargs):
+            new = torch.tensor([[4, 1]])
+            sequences = torch.cat([kwargs["input_ids"], new], dim=-1)
+            scores = (torch.zeros(1, 6), torch.zeros(1, 6))
+            scores[0][0, 4] = 2
+            return SimpleNamespace(sequences=sequences, scores=scores)
+
+    from actproto.training.grpo_run import _sample_peft_action
+
+    text, ids, logprobs, truncated = _sample_peft_action(
+        Model(), Tokenizer(), [3], temperature=1.0, top_p=1.0, max_new_tokens=4,
+    )
+    assert text == "call"
+    assert ids == [4]
+    assert truncated is False
+    expected = float(torch.log_softmax(torch.tensor([0.0, 0.0, 0.0, 0.0, 2.0, 0.0]), dim=-1)[4])
+    assert logprobs == pytest.approx([expected])
+    with pytest.raises(GrpoConfigError, match="max_new_tokens"):
+        _sample_peft_action(Model(), Tokenizer(), [3], temperature=1.0, top_p=1.0, max_new_tokens=257)

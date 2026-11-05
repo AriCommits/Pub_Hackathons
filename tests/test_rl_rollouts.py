@@ -569,6 +569,121 @@ def test_scored_handoff_rejects_externally_supplied_session():
         collect_scored_fixture_episode(task(), **kwargs)
 
 
+class _BoundScope:
+    """Stand-in that passes the scoped-fixture type check without a manifest."""
+
+    def __new__(cls, spec):
+        from actproto.training.rl_dataset import VerifiedTrainFixtures
+        scope = object.__new__(VerifiedTrainFixtures)
+        scope._tasks = {spec.task_id: spec}
+        scope.identifier = spec.environment_id
+        scope.digest = spec.fixture_hash
+        return scope
+
+
+def _install_for_task(scope):
+    def for_task(spec):
+        if scope._tasks.get(spec.task_id) != spec:
+            raise ValueError("task is not the manifest-bound training task")
+        return StatefulEnvironment()
+    scope.for_task = for_task
+    return scope
+
+
+def test_fake_model_observation_changes_the_next_prompt_and_builds_a_ledger():
+    from actproto.training.rewards_v2 import SHAPED_VERSION
+    from actproto.training.rl_rollouts import TrustedRolloutAdapter
+    spec = task()
+    scope = _install_for_task(_BoundScope(spec))
+    seen = []
+
+    def factory(seed, trainer):
+        del seed, trainer
+        def policy(ids, budget):
+            prompt = "".join(map(chr, ids))
+            seen.append(prompt)
+            if "Tool result:" not in prompt:
+                return generated(call("calculator", {"expression": "1+1"}))
+            return generated(call("finish", {"answer": "1"}))
+        return policy
+
+    adapter = TrustedRolloutAdapter(
+        CharacterTokenizer(), [spec], factory, lambda: scope,
+        run_id="run", policy_hash="a" * 64, sampling_mode="behavior",
+        trainer_callback=True, deadline_seconds=5,
+    )
+    result = adapter([spec.prompt], trainer=None)
+    assert "Tool result:" not in seen[0]
+    assert "hidden-oracle" not in seen[0] and "hidden-oracle" not in seen[1]
+    assert "Tool result:" in seen[1] and '"value": 1' in seen[1]
+    session = result["reward_sessions"][0]
+    assert result["completion_reasons"] == ["finish"]
+    ledger = session.score(completion_reason="finish", version=SHAPED_VERSION)
+    assert ledger.verified_success is True
+    assert ledger.reward == 1.0
+    assert [event["tool"] for event in session.captured_tool_events()] == ["calculator", "finish"]
+
+
+def test_behavior_rollout_rejects_unscoped_json_and_caller_sessions():
+    from actproto.training.rl_rollouts import TrustedRolloutAdapter, run_trusted_behavior_episode
+    spec = task()
+    with pytest.raises(ValueError, match="hard-deadline"):
+        TrustedRolloutAdapter(
+            CharacterTokenizer(), [spec], lambda seed, trainer: None, StatefulEnvironment,
+            run_id="run", policy_hash="a" * 64, sampling_mode="behavior",
+            trainer_callback=True, deadline_seconds=0,
+        )
+    with pytest.raises(ValueError, match="deserialized JSON"):
+        TrustedRolloutAdapter(
+            CharacterTokenizer(), [spec], lambda seed, trainer: None, StatefulEnvironment,
+            run_id="run", policy_hash="a" * 64, sampling_mode="behavior",
+            trainer_callback=True, deadline_seconds=5, resume_records={"row": {}},
+        )
+    scope = _install_for_task(_BoundScope(spec))
+    with pytest.raises(ValueError, match="caller-supplied"):
+        run_trusted_behavior_episode(
+            spec, tokenizer=CharacterTokenizer(),
+            policy=lambda ids, budget: generated(call("finish", {"answer": "1"})),
+            environment_factory=lambda: scope, deadline_seconds=5, session=object(),
+        )
+    with pytest.raises(ValueError, match="manifest-verified"):
+        run_trusted_behavior_episode(
+            spec, tokenizer=CharacterTokenizer(),
+            policy=lambda ids, budget: generated(call("finish", {"answer": "1"})),
+            environment_factory=StatefulEnvironment, deadline_seconds=5,
+        )
+
+
+def test_parse_failure_and_timeout_are_invalid_not_a_successful_finish():
+    from actproto.training.rewards_v2 import SHAPED_VERSION
+    from actproto.training.rl_rollouts import run_trusted_behavior_episode
+    spec = task()
+    scope = _install_for_task(_BoundScope(spec))
+    parsed = run_trusted_behavior_episode(
+        spec, tokenizer=CharacterTokenizer(),
+        policy=lambda ids, budget: generated("finish the task without a call"),
+        environment_factory=lambda: scope, deadline_seconds=5,
+    )
+    assert parsed.completion_reason == "parse_error"
+    ledger = parsed.session.score(completion_reason=parsed.completion_reason, version=SHAPED_VERSION)
+    assert ledger.verified_success is False
+    assert ledger.reward < 0
+    assert ledger.invalid_attempts >= 1
+    assert parsed.session.captured_tool_events() == []
+
+    clock = iter((0, 0, 0, 10))
+    timed = run_trusted_behavior_episode(
+        spec, tokenizer=CharacterTokenizer(),
+        policy=lambda ids, budget: generated(call("finish", {"answer": "1"})),
+        environment_factory=lambda: _install_for_task(_BoundScope(spec)),
+        deadline_seconds=5, clock=lambda: next(clock),
+    )
+    assert timed.completion_reason == "timeout"
+    timed_ledger = timed.session.score(completion_reason="timeout", version=SHAPED_VERSION)
+    assert timed_ledger.verified_success is False
+    assert timed.session.captured_tool_events() == []
+
+
 def test_live_reward_tool_events_cannot_be_mutated_by_caller():
     from actproto.agent.harness import DictToolHarness
     from actproto.training.rewards_v2 import TrustedRewardSession

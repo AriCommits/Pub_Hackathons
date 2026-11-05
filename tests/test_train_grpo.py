@@ -83,14 +83,17 @@ def test_missing_baseline_and_empty_prompts_fail(tmp_path):
             with pytest.raises(GrpoConfigError, match="adapter path does not exist"):
                 run_train(config, LEXSI)
 
+    from scripts.run_experiment_v2 import adapter_digest
+
     adapter = tmp_path / "adapter"
     adapter.mkdir()
+    (adapter / "adapter_config.json").write_text("{}", encoding="utf-8")
     (adapter / "weights.bin").write_bytes(b"fixture-adapter")
     matched = tmp_path / "matched"
     _write_baseline(matched, {
         "frozen": True,
         "adapter_path": str(adapter),
-        "adapter_sha256": _directory_sha256(adapter),
+        "adapter_sha256": adapter_digest(adapter),
     })
     with pytest.raises(GrpoConfigError, match="nonempty"):
         run_train(config, matched)
@@ -147,6 +150,7 @@ def test_cpu_smoke_updates_only_lora_weights_and_resume_keeps_the_first_checkpoi
 
 
 GPU_CONFIG = Path("actproto/configs/grpo_v2_gpu.yaml")
+E2_CONFIG = Path("actproto/configs/grpo_v2_gpu_e2.yaml")
 
 
 def test_gpu_schema_does_not_enter_cpu_fit(monkeypatch):
@@ -158,7 +162,7 @@ def test_gpu_schema_does_not_enter_cpu_fit(monkeypatch):
 
 def test_gpu_train_and_resume_fail_closed(tmp_path):
     config = load_grpo_config(GPU_CONFIG)
-    with pytest.raises(GrpoConfigError, match="Tiny Aya"):
+    with pytest.raises(GrpoConfigError, match="S7"):
         run_train(config, tmp_path)
     with pytest.raises(GrpoConfigError, match="resume is closed"):
         run_resume(config, tmp_path, tmp_path / "results" / "rl_v2" / "grpo_gpu_smoke", tmp_path, max_steps=2)
@@ -226,3 +230,172 @@ def test_gpu_output_refuses_the_cpu_smoke_and_adapter_paths(tmp_path):
     with pytest.raises(GrpoConfigError, match="adapter"):
         guard_gpu_output(root / "results" / "rl_v2" / "adapters" / "b1", root)
     assert guard_gpu_output(fresh, root) == fresh.resolve()
+
+
+def _saved_adapter(root: Path) -> str:
+    from scripts.run_experiment_v2 import adapter_digest
+
+    adapter = root / "adapter"
+    adapter.mkdir()
+    (adapter / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (adapter / "weights.bin").write_bytes(b"fixture-adapter")
+    return adapter_digest(adapter)
+
+
+def _project_with_baseline(tmp_path: Path, digest: str, adapter: Path) -> Path:
+    root = tmp_path / "project"
+    _write_baseline(root, {"frozen": True, "adapter_path": str(adapter), "adapter_sha256": digest})
+    manifest = root / "data" / "benchmarks" / "tooluse_v2"
+    manifest.mkdir(parents=True)
+    (manifest / "manifest.json").write_text("{}\n", encoding="utf-8")
+    (root / "results" / "rl_v2").mkdir(parents=True)
+    return root
+
+
+def test_baseline_checker_rejects_the_concatenation_hash(tmp_path):
+    from scripts.run_experiment_v2 import adapter_digest
+
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (adapter / "weights.bin").write_bytes(b"fixture-adapter")
+    assert adapter_digest(adapter) != _directory_sha256(adapter)
+    root = _project_with_baseline(tmp_path, _directory_sha256(adapter), adapter)
+    config = load_grpo_config(CONFIG)
+    with pytest.raises(GrpoConfigError, match="hash does not match"):
+        run_train(config, root)
+
+
+def test_shipped_baseline_matches_adapter_digest_not_concatenation():
+    from actproto.training.grpo_run import _require_baseline
+    from scripts.run_experiment_v2 import adapter_digest
+
+    shipped = json.loads((LEXSI / "docs" / "SFT_BASELINE_MANIFEST.json").read_text(encoding="utf-8"))
+    adapter = Path(shipped["adapter_path"])
+    if not adapter.is_dir():
+        pytest.fail("frozen adapter path does not exist")
+    assert adapter_digest(adapter) == shipped["adapter_sha256"]
+    assert _directory_sha256(adapter) != shipped["adapter_sha256"]
+    manifest = _require_baseline(LEXSI, load_grpo_config(CONFIG))
+    assert manifest["adapter_sha256"] == shipped["adapter_sha256"]
+
+
+def test_cpu_profile_still_refuses_optimization_after_a_matching_baseline(tmp_path, monkeypatch):
+    adapter = tmp_path / "adapter"
+    digest = _saved_adapter(tmp_path)
+    root = _project_with_baseline(tmp_path, digest, adapter)
+    task = TaskSpec("t", "g", "train", "What is 1+1?", "outcome", {"answer": "private-oracle"}, [],
+                    {"type": "exact"}, 2, "env", "hash")
+    monkeypatch.setattr(
+        "actproto.training.rl_dataset.load_scoped_train_manifest",
+        lambda path: (object(), [task]),
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("Tiny Aya training started on the CPU profile")
+
+    monkeypatch.setattr("actproto.training.grpo_run._train_tiny_aya", fail)
+    config = load_grpo_config(CONFIG)
+    edited = config.__class__(**{**config.__dict__, "train_manifest": "data/benchmarks/tooluse_v2/manifest.json"})
+    with pytest.raises(GrpoConfigError, match="beta_zero is not an SFT reference"):
+        run_train(edited, root)
+
+
+def test_named_gpu_train_reaches_tiny_aya_only_in_the_masked_child(tmp_path, monkeypatch):
+    adapter = tmp_path / "adapter"
+    digest = _saved_adapter(tmp_path)
+    root = _project_with_baseline(tmp_path, digest, adapter)
+    task = TaskSpec("t", "g", "train", "What is 1+1?", "outcome", {"answer": "private-oracle"}, [],
+                    {"type": "exact"}, 2, "env", "hash")
+    monkeypatch.setattr(
+        "actproto.training.rl_dataset.load_scoped_train_manifest",
+        lambda path: (object(), [task]),
+    )
+    seen = {}
+
+    def fake_train(*args, **kwargs):
+        seen["rows"] = args[3]
+        seen["steps"] = kwargs["max_steps"]
+        return {"mode": "train", "reference_policy": "beta_zero", "baseline_loaded": True}
+
+    monkeypatch.setattr("actproto.training.grpo_run._train_tiny_aya", fake_train)
+    config = load_grpo_config(E2_CONFIG)
+    with pytest.raises(GrpoConfigError, match="masked child"):
+        run_train(config, root)
+    assert "rows" not in seen
+    monkeypatch.setenv("LEXSI_RL_GPU_CHILD", "1")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    payload = run_train(config, root)
+    assert seen["steps"] == 20
+    assert payload["reference_policy"] == "beta_zero"
+    assert payload["baseline_loaded"] is True
+    encoded = json.dumps(seen["rows"])
+    assert "private-oracle" not in encoded
+    assert set(seen["rows"][0]) == {"prompt"}
+
+
+def test_gpu_child_still_rejects_a_missing_or_mismatched_adapter(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEXSI_RL_GPU_CHILD", "1")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    monkeypatch.setattr(
+        "actproto.training.grpo_run._train_tiny_aya",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("training started")),
+    )
+    config = load_grpo_config(E2_CONFIG)
+    missing = tmp_path / "missing"
+    _write_baseline(missing, {
+        "frozen": True,
+        "adapter_path": str(missing / "no-such-adapter"),
+        "adapter_sha256": "ab" * 32,
+    })
+    with pytest.raises(GrpoConfigError, match="adapter path does not exist"):
+        run_train(config, missing)
+
+    adapter = tmp_path / "adapter"
+    _saved_adapter(tmp_path)
+    mismatched = _project_with_baseline(tmp_path, "cd" * 32, adapter)
+    with pytest.raises(GrpoConfigError, match="hash does not match"):
+        run_train(config, mismatched)
+
+
+def test_train_payload_records_beta_zero_only_after_the_adapter_loads():
+    from actproto.training.grpo_run import _train_payload
+
+    payload = _train_payload(global_step=1, baseline_loaded=True, reference_model_built=False)
+    assert payload["reference_policy"] == "beta_zero"
+    assert payload["baseline_loaded"] is True
+    assert payload["reference_model_built"] is False
+    assert payload["beta"] == 0.0
+    with pytest.raises(GrpoConfigError, match="frozen adapter"):
+        _train_payload(global_step=1, baseline_loaded=False, reference_model_built=False)
+    with pytest.raises(GrpoConfigError, match="reference model"):
+        _train_payload(global_step=1, baseline_loaded=True, reference_model_built=True)
+
+
+def test_gpu_train_without_the_live_flag_does_not_launch(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("training launched")
+
+    monkeypatch.setattr("scripts.train_grpo.launch_gpu_smoke", fail)
+    monkeypatch.setattr("actproto.training.grpo_run._train_tiny_aya", fail)
+    assert main(["--train", "--config", str(E2_CONFIG)]) == 2
+
+
+def test_live_train_launch_masks_only_the_child(monkeypatch):
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr("scripts.train_grpo.assert_5060_idle", lambda: None)
+    monkeypatch.setattr("scripts.train_grpo.visible_ordinal_for_5060", lambda: "0")
+    seen = {}
+
+    def fake_call(cmd, env):
+        seen["cmd"] = cmd
+        seen["env"] = env
+        return 0
+
+    monkeypatch.setattr("scripts.train_grpo.subprocess.call", fake_call)
+    assert main(["--train", "--live-gpu", "--config", str(E2_CONFIG)]) == 0
+    assert seen["env"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert seen["env"]["LEXSI_RL_GPU_CHILD"] == "1"
+    assert os.environ.get("CUDA_VISIBLE_DEVICES") in (None, "")
+    assert "--train" in seen["cmd"]
+    assert "--live-gpu" in seen["cmd"]

@@ -5,7 +5,8 @@ could be imported, even with an empty dataset and no call to ``trainer.train``.
 That stub is gone. ``scripts/train_grpo.py`` now uses ``grpo_run``: plan-only and
 collect-only do not optimize, and a real run fails until Plan 9 freezes the SFT
 baseline. A beta of zero is an explicit named configuration, not a silent
-substitution for the frozen SFT reference.
+substitution for the frozen SFT reference. The named GPU profile may train
+from that adapter with beta 0; that load is not a KL reference.
 """
 from __future__ import annotations
 

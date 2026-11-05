@@ -1,4 +1,4 @@
-"""GRPO lifecycle. Plan and collect modes do not optimize; real training is fail-closed."""
+"""GRPO lifecycle. Plan and collect modes do not optimize. Named GPU training is fail-closed; CPU training stays closed."""
 from __future__ import annotations
 
 from hashlib import sha256
@@ -48,10 +48,22 @@ def run_collect_only(config: GrpoV2Config, project_root: Path) -> dict:
     return {"mode": "collect-only", "optimizes": False, "tasks": len(prompts), "optimizer_steps": 0}
 
 
-def run_train(config: GrpoV2Config, project_root: Path) -> dict:
-    """Refuse real optimization. A GPU profile does not open Tiny Aya training."""
-    if config.schema_version == GRPO_GPU_PROFILE:
-        raise GrpoConfigError("a GPU config does not open Tiny Aya optimization")
+PINNED_MODEL_ID = "CohereLabs/tiny-aya-global"
+PINNED_REVISION = "af89d219b53ed9b13b8a4645f9c8028973510324"
+
+
+def run_train(
+    config: GrpoV2Config,
+    project_root: Path,
+    *,
+    output_dir: Path | None = None,
+    max_steps: int | None = None,
+) -> dict:
+    """Train Tiny Aya from the frozen adapter on the named GPU profile.
+
+    CPU profiles still stop after the baseline and dataset checks. Beta 0 does
+    not construct an SFT reference model.
+    """
     manifest = _require_baseline(project_root, config)
     if not config.train_manifest:
         raise GrpoConfigError("real training requires a nonempty train manifest")
@@ -61,15 +73,232 @@ def run_train(config: GrpoV2Config, project_root: Path) -> dict:
     from actproto.training.rl_dataset import load_scoped_train_manifest
 
     _scope, tasks = load_scoped_train_manifest(train_path)
-    public_prompt_rows(tasks)
+    rows = public_prompt_rows(tasks)
+    if any(set(row) != {"prompt"} for row in rows):
+        raise GrpoConfigError("training prompts leaked private oracle data")
     adapter = Path(manifest["adapter_path"])
-    output = resolve_output(config.output_dir, project_root)
+    output = output_dir if output_dir is not None else resolve_output(config.output_dir, project_root)
     if output.resolve() == adapter.resolve() or adapter.resolve() in output.resolve().parents:
         raise GrpoConfigError("training output must not overwrite the frozen SFT adapter")
-    raise GrpoConfigError(
-        "real GRPO optimization is blocked until the frozen SFT baseline is loaded on a verified GPU configuration; "
-        "beta_zero is not an SFT reference"
+    if config.schema_version != GRPO_GPU_PROFILE or config.use_cpu:
+        raise GrpoConfigError(
+            "real GRPO optimization is blocked until the frozen SFT baseline is loaded on a verified GPU configuration; "
+            "beta_zero is not an SFT reference"
+        )
+    if os.environ.get("LEXSI_RL_GPU_CHILD") != "1":
+        raise GrpoConfigError("live CUDA training runs only in the masked child process")
+    if not os.environ.get("CUDA_VISIBLE_DEVICES"):
+        raise GrpoConfigError("masked child is missing CUDA_VISIBLE_DEVICES")
+    steps = config.max_steps if max_steps is None else max_steps
+    if steps < 1:
+        raise GrpoConfigError("training requires at least one update")
+    output = guard_gpu_output(output, project_root)
+    return _train_tiny_aya(
+        config,
+        project_root,
+        output,
+        rows,
+        adapter,
+        max_steps=steps,
+        adapter_sha256=str(manifest["adapter_sha256"]),
     )
+
+
+def _train_payload(*, global_step: int, baseline_loaded: bool, reference_model_built: bool) -> dict:
+    """Record beta 0 as the absence of a KL reference, and only after the adapter loaded."""
+    if baseline_loaded is not True:
+        raise GrpoConfigError("beta_zero training must load the frozen adapter")
+    if reference_model_built:
+        raise GrpoConfigError("beta_zero training must not build a reference model")
+    if global_step < 1:
+        raise GrpoConfigError("training finished without an optimizer step")
+    return {
+        "mode": "train",
+        "optimizes": True,
+        "reference_policy": "beta_zero",
+        "beta": 0.0,
+        "baseline_loaded": True,
+        "reference_model_built": False,
+        "global_step": global_step,
+    }
+
+
+def _completion_text(completion: object) -> str:
+    if isinstance(completion, str):
+        return completion
+    if isinstance(completion, list):
+        parts = []
+        for message in completion:
+            if isinstance(message, dict):
+                parts.append(str(message.get("content", "")))
+            else:
+                parts.append(str(message))
+        return "\n".join(parts)
+    return str(completion)
+
+
+def _public_completion_reward(completions, **kwargs):
+    """Score public completions only. Extra trainer columns are ignored."""
+    del kwargs
+    return [1.0 if "finish" in _completion_text(item).lower() else 0.0 for item in completions]
+
+
+def _is_cuda_oom(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "out of memory" in text or "cuda oom" in text
+
+
+def _record_memory_error(output_dir: Path, exc: BaseException, *, baseline_loaded: bool) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(output_dir / "memory_error.json", {
+        "error": f"{type(exc).__name__}: {exc}",
+        "baseline_loaded": baseline_loaded,
+        "reference_policy": "beta_zero",
+        "reference_model_built": False,
+        "retried": False,
+    })
+    print(f"CUDA_OOM baseline_loaded={str(baseline_loaded).lower()} {type(exc).__name__}: {exc}", flush=True)
+
+
+def _train_tiny_aya(
+    config: GrpoV2Config,
+    project_root: Path,
+    output_dir: Path,
+    rows: list[dict],
+    adapter_path: Path,
+    *,
+    max_steps: int,
+    adapter_sha256: str,
+) -> dict:
+    """One bounded bf16 GRPO run from the frozen adapter. An OOM is recorded once."""
+    import yaml
+
+    sft = yaml.safe_load((project_root / "actproto" / "configs" / "sft_v2.yaml").read_text(encoding="utf-8"))
+    if sft.get("model_id") != PINNED_MODEL_ID or sft.get("revision") != PINNED_REVISION:
+        raise GrpoConfigError("Tiny Aya revision does not match the pinned study model")
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    import torch
+    from datasets import Dataset
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
+
+    from actproto.integrations.agenttune_backend import create_trainer
+    from actproto.training.rl_device import DeviceRecord, normalize_uuid, select_5060_ti
+
+    records = []
+    for index in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(index)
+        records.append(DeviceRecord(index, props.name, normalize_uuid(props.uuid), int(props.total_memory)))
+    chosen_index = select_5060_ti(records)
+    chosen = next(record for record in records if record.index == chosen_index)
+    device = torch.device("cuda", chosen.index)
+    torch.cuda.set_device(device)
+    print(f"device_uuid={chosen.uuid} device_name={chosen.name}", flush=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    baseline_loaded = False
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(PINNED_MODEL_ID, revision=PINNED_REVISION, local_files_only=True)
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        base = AutoModelForCausalLM.from_pretrained(
+            PINNED_MODEL_ID, revision=PINNED_REVISION, dtype=torch.bfloat16, local_files_only=True,
+        )
+        base.config.use_cache = False
+        base = base.to(device)
+        model = PeftModel.from_pretrained(base, str(adapter_path), is_trainable=True)
+        model = model.to(device)
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad = "lora_" in name
+        baseline_loaded = True
+    except RuntimeError as exc:
+        if _is_cuda_oom(exc):
+            _record_memory_error(output_dir, exc, baseline_loaded=baseline_loaded)
+            raise GrpoConfigError(f"CUDA out of memory: {exc}") from exc
+        raise
+    trainable = [name for name, parameter in model.named_parameters() if parameter.requires_grad and "lora_" in name]
+    print("baseline_loaded=true reference_policy=beta_zero reference_model_built=false", flush=True)
+    if not trainable:
+        raise GrpoConfigError("frozen adapter loaded without trainable LoRA weights")
+    print(f"train_rows={len(rows)} trainable_lora={len(trainable)}", flush=True)
+
+    class StepLog(TrainerCallback):
+        def on_step_end(self, args, state, control, **kwargs):
+            del args, control, kwargs
+            print(f"global_step={state.global_step}", flush=True)
+
+    torch.manual_seed(config.seed)
+    wrapper = create_trainer(
+        model=model,
+        processing_class=tokenizer,
+        reward_funcs=_public_completion_reward,
+        train_dataset=Dataset.from_list(rows),
+        callbacks=[StepLog()],
+        output_dir=str(output_dir),
+        num_generations=config.num_generations,
+        per_device_train_batch_size=config.per_device_train_batch_size,
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
+        learning_rate=config.learning_rate,
+        max_steps=max_steps,
+        warmup_steps=0,
+        logging_steps=1,
+        save_steps=max_steps,
+        save_strategy="steps",
+        max_completion_length=config.max_completion_length,
+        temperature=config.temperature,
+        top_p=config.top_p,
+        seed=config.seed,
+        lr_scheduler_type="constant",
+        bf16=True,
+        fp16=False,
+        report_to="none",
+        use_cpu=False,
+        gpu_profile=GRPO_GPU_PROFILE,
+        use_vllm=False,
+        beta=0.0,
+        gradient_checkpointing=True,
+        disable_tqdm=True,
+    )
+    wrapper.setup_data()
+    wrapper.setup_trainer()
+    trainer = wrapper.trainer
+    if trainer is None:
+        raise GrpoConfigError("backend did not construct a trainer")
+    reference_built = getattr(trainer, "ref_model", None) is not None or float(trainer.beta) != 0.0
+    if reference_built:
+        raise GrpoConfigError("beta_zero training constructed a reference model")
+    _write_json(output_dir / "started.json", {
+        "reference_policy": "beta_zero",
+        "beta": 0.0,
+        "baseline_loaded": True,
+        "reference_model_built": False,
+        "model_id": PINNED_MODEL_ID,
+        "revision": PINNED_REVISION,
+        "adapter_sha256": adapter_sha256,
+        "max_steps": max_steps,
+        "rows": len(rows),
+        "device_uuid": chosen.uuid,
+    })
+    _write_json(output_dir / "effective_config.json", config.public_dict())
+    try:
+        trainer.train()
+    except RuntimeError as exc:
+        if _is_cuda_oom(exc):
+            _record_memory_error(output_dir, exc, baseline_loaded=True)
+            raise GrpoConfigError(f"CUDA out of memory: {exc}") from exc
+        raise
+    state_path = _latest_trainer_state(output_dir)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    payload = _train_payload(
+        global_step=int(state.get("global_step", 0)),
+        baseline_loaded=True,
+        reference_model_built=False,
+    )
+    payload["device_uuid"] = chosen.uuid
+    payload["model_id"] = PINNED_MODEL_ID
+    payload["revision"] = PINNED_REVISION
+    payload["adapter_sha256"] = adapter_sha256
+    _write_json(completed_marker(output_dir), payload)
+    return payload
 
 
 def public_prompt_rows(tasks: list[TaskSpec]) -> list[dict]:
@@ -505,14 +734,16 @@ def _require_baseline(project_root: Path, config: GrpoV2Config) -> dict:
     adapter = Path(manifest["adapter_path"])
     if not adapter.is_dir():
         raise GrpoConfigError("baseline adapter path does not exist")
-    digest = sha256()
     files = sorted(path for path in adapter.rglob("*") if path.is_file())
     if not files:
         raise GrpoConfigError("baseline adapter is empty")
-    for file in files:
-        digest.update(file.relative_to(adapter).as_posix().encode())
-        digest.update(file.read_bytes())
-    if digest.hexdigest() != manifest["adapter_sha256"]:
+    from scripts.run_experiment_v2 import adapter_digest
+
+    try:
+        digest = adapter_digest(adapter)
+    except ValueError as exc:
+        raise GrpoConfigError(str(exc)) from exc
+    if digest != manifest["adapter_sha256"]:
         raise GrpoConfigError("baseline adapter hash does not match the manifest")
     return manifest
 

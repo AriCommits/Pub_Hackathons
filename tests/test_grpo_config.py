@@ -30,6 +30,28 @@ def test_checked_in_config_is_the_named_beta_zero_cpu_run():
     assert public["quantization"] is None
 
 
+E2_CONFIG = Path("actproto/configs/grpo_v2_gpu_e2.yaml")
+
+
+def test_e2_gpu_config_is_the_bounded_5060_run():
+    config = load_grpo_config(E2_CONFIG)
+    assert config.schema_version == "grpo_v2_gpu"
+    assert config.reference_policy == "beta_zero"
+    assert config.beta == 0.0
+    assert config.use_cpu is False
+    assert config.bf16 is True
+    assert config.gradient_checkpointing is True
+    assert config.max_steps == 20
+    assert config.num_generations == 2
+    assert config.per_device_train_batch_size == 1
+    assert config.gradient_accumulation_steps == 2
+    assert config.generation_batch_size % config.num_generations == 0
+    assert config.max_completion_length == 256
+    assert config.output_dir == "results/rl_v2/grpo_gpu_e2"
+    assert config.train_manifest == "data/benchmarks/tooluse_v2/manifest.json"
+    assert config.public_dict()["use_vllm"] is False
+
+
 def test_gpu_config_loads_only_as_the_named_5060_profile():
     config = load_grpo_config(GPU_CONFIG)
     assert config.schema_version == "grpo_v2_gpu"

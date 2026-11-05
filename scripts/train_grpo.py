@@ -40,7 +40,21 @@ def main(argv: list[str] | None = None) -> int:
         elif args.collect_only:
             payload = run_collect_only(config, ROOT)
         elif args.train:
-            payload = run_train(config, ROOT)
+            if config.schema_version == GRPO_GPU_PROFILE:
+                if not args.live_gpu:
+                    raise GrpoConfigError("live CUDA training is gated; pass --live-gpu")
+                if os.environ.get("LEXSI_RL_GPU_CHILD") == "1":
+                    relative = args.output or config.output_dir
+                    output = resolve_output(relative, ROOT)
+                    steps = args.max_steps or config.max_steps
+                    payload = run_train(config, ROOT, output_dir=output, max_steps=steps)
+                else:
+                    forwarded = list(argv) if argv is not None else sys.argv[1:]
+                    return launch_gpu_smoke(forwarded)
+            else:
+                if args.live_gpu:
+                    raise GrpoConfigError("--live-gpu applies only to the grpo_v2_gpu profile")
+                payload = run_train(config, ROOT)
         elif config.schema_version == GRPO_GPU_PROFILE and args.resume:
             raise GrpoConfigError("GPU smoke resume is closed")
         elif args.smoke and config.schema_version == GRPO_GPU_PROFILE:
@@ -72,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def launch_gpu_smoke(argv: list[str]) -> int:
-    """Start the smoke in a child whose only visible GPU is the 5060 Ti."""
+    """Start smoke or training in a child whose only visible GPU is the 5060 Ti."""
     if os.environ.get("CUDA_VISIBLE_DEVICES"):
         raise GrpoConfigError("CUDA_VISIBLE_DEVICES is already set")
     assert_5060_idle()

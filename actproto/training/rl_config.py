@@ -12,7 +12,7 @@ class GrpoConfigError(ValueError):
     """The requested GRPO run is outside the verified configuration."""
 
 
-_REQUIRED = {
+_CPU_REQUIRED = {
     "schema_version": "grpo_v2",
     "reference_policy": "beta_zero",
     "use_cpu": True,
@@ -22,6 +22,24 @@ _REQUIRED = {
     "report_to": "none",
     "gradient_checkpointing": False,
 }
+_GPU_REQUIRED = {
+    "schema_version": "grpo_v2_gpu",
+    "reference_policy": "beta_zero",
+    "use_cpu": False,
+    "use_vllm": False,
+    "bf16": True,
+    "fp16": False,
+    "report_to": "none",
+    "gradient_checkpointing": True,
+}
+_GPU_DEVICE_KEYS = {"device_name", "device_uuid"}
+_SHARED_KEYS = {
+    "beta", "learning_rate", "num_generations", "per_device_train_batch_size",
+    "gradient_accumulation_steps", "max_completion_length", "temperature", "top_p",
+    "max_steps", "seed", "output_dir", "baseline_manifest", "train_manifest",
+}
+RTX_5060_TI_UUID = "134c34ef-c155-b001-4e3a-b9134b072c21"
+RTX_4060_UUID = "5b885e12-623f-268c-f07c-ee33db379969"
 
 
 @dataclass(frozen=True)
@@ -40,6 +58,13 @@ class GrpoV2Config:
     output_dir: str
     baseline_manifest: str
     train_manifest: str
+    schema_version: str = "grpo_v2"
+    use_cpu: bool = True
+    bf16: bool = False
+    fp16: bool = False
+    gradient_checkpointing: bool = False
+    device_name: str = ""
+    device_uuid: str = ""
 
     @property
     def generation_batch_size(self) -> int:
@@ -47,7 +72,7 @@ class GrpoV2Config:
 
     def public_dict(self) -> dict:
         return {
-            "schema_version": "grpo_v2",
+            "schema_version": self.schema_version,
             "reference_policy": self.reference_policy,
             "beta": self.beta,
             "learning_rate": self.learning_rate,
@@ -63,7 +88,12 @@ class GrpoV2Config:
             "output_dir": self.output_dir,
             "baseline_manifest": self.baseline_manifest,
             "train_manifest": self.train_manifest,
-            "use_cpu": True,
+            "use_cpu": self.use_cpu,
+            "bf16": self.bf16,
+            "fp16": self.fp16,
+            "gradient_checkpointing": self.gradient_checkpointing,
+            "device_name": self.device_name,
+            "device_uuid": self.device_uuid,
             "use_vllm": False,
             "quantization": None,
             "vllm": False,
@@ -71,19 +101,29 @@ class GrpoV2Config:
 
 
 def load_grpo_config(path: str | Path) -> GrpoV2Config:
+    """Load a CPU or named GPU profile. A manifest path is stored, never opened."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise GrpoConfigError("GRPO config must be a mapping")
-    unknown = set(raw) - set(_REQUIRED) - {
-        "beta", "learning_rate", "num_generations", "per_device_train_batch_size",
-        "gradient_accumulation_steps", "max_completion_length", "temperature", "top_p",
-        "max_steps", "seed", "output_dir", "baseline_manifest", "train_manifest",
-    }
+    schema = raw.get("schema_version")
+    if schema == "grpo_v2":
+        required = _CPU_REQUIRED
+        extra: set[str] = set()
+    elif schema == "grpo_v2_gpu":
+        required = _GPU_REQUIRED
+        extra = set(_GPU_DEVICE_KEYS)
+    else:
+        raise GrpoConfigError("schema_version must be 'grpo_v2' or 'grpo_v2_gpu'")
+    unknown = set(raw) - set(required) - _SHARED_KEYS - extra
     if unknown:
         raise GrpoConfigError(f"unsupported GRPO options: {', '.join(sorted(unknown))}")
-    for key, expected in _REQUIRED.items():
+    for key, expected in required.items():
         if raw.get(key) != expected:
             raise GrpoConfigError(f"{key} must be {expected!r}; refusing to drop or rewrite it")
+    device_name = ""
+    device_uuid = ""
+    if schema == "grpo_v2_gpu":
+        device_name, device_uuid = _require_5060_ti(raw)
     beta = raw.get("beta")
     if isinstance(beta, bool) or not isinstance(beta, (int, float)) or float(beta) != 0.0:
         raise GrpoConfigError("beta must be 0.0 until a frozen SFT reference is proven; do not label another policy as that reference")
@@ -114,6 +154,13 @@ def load_grpo_config(path: str | Path) -> GrpoV2Config:
         output_dir=_relative_output(raw.get("output_dir")),
         baseline_manifest=str(raw.get("baseline_manifest") or ""),
         train_manifest=str(raw.get("train_manifest") or ""),
+        schema_version=schema,
+        use_cpu=bool(required["use_cpu"]),
+        bf16=bool(required["bf16"]),
+        fp16=bool(required["fp16"]),
+        gradient_checkpointing=bool(required["gradient_checkpointing"]),
+        device_name=device_name,
+        device_uuid=device_uuid,
     )
 
 
@@ -127,6 +174,18 @@ def resolve_output(relative: str, root: Path) -> Path:
     if target == allowed or allowed not in target.parents:
         raise GrpoConfigError("output_dir must be a file directory inside results/rl_v2")
     return target
+
+
+def _require_5060_ti(raw: dict) -> tuple[str, str]:
+    name = raw.get("device_name")
+    uuid = raw.get("device_uuid")
+    if not isinstance(name, str) or "RTX 5060 Ti" not in name:
+        raise GrpoConfigError("device_name must identify an RTX 5060 Ti")
+    if uuid == RTX_4060_UUID:
+        raise GrpoConfigError("the RTX 4060 cannot host this GPU profile")
+    if not isinstance(uuid, str) or uuid != RTX_5060_TI_UUID:
+        raise GrpoConfigError("device_uuid must be the RTX 5060 Ti")
+    return name, uuid
 
 
 def _relative_output(value: object) -> str:

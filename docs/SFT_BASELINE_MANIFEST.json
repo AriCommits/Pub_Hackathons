@@ -1,0 +1,22 @@
+{
+  "adapter_path": "C:\\Users\\arian\\Github\\Hackathons-worktrees\\plan-9-complete\\lexsi\\results\\sft_v2\\e2\\checkpoint-150",
+  "adapter_sha256": "6125195bc713f8c4d9e89070233b65667a8068f8fc684a1e14a2522a26b8d670",
+  "dataset_manifest_sha256": "fc7ff9c37943b789f192ce55917076554375e8fc32d66ca815ef2284c2b56f60",
+  "epochs_executed": 1,
+  "frozen": true,
+  "full_config_epochs": 2,
+  "improvement": 0.7466666666666666,
+  "omitted": [
+    "e1",
+    "e3"
+  ],
+  "reference_policy": "selected_sft",
+  "schema_version": "tooluse_v2",
+  "selected_adapter_sha256": "6125195bc713f8c4d9e89070233b65667a8068f8fc684a1e14a2522a26b8d670",
+  "selected_id": "e2",
+  "selection_split": "val",
+  "status": "frozen",
+  "target_met": true,
+  "template_sha256": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "verifier_sha256": "8bc44fc30e622d3d980a795e344f8dcf2b0470ed5d4fadf3aeb1d6af1e98cb5c"
+}

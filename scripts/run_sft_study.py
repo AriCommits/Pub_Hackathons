@@ -61,8 +61,11 @@ def _candidate(run, candidate_id, groups):
         if not line.strip():
             continue
         record = json.loads(line)
+        success = record["metrics"]["verified_success_v2"]
+        if isinstance(success, bool):
+            success = int(success)
         rows.append({"task_id": record["task_id"], "group_id": groups[record["task_id"]],
-                     "stratum": record["stratum"], "verified_success_v2": record["metrics"]["verified_success_v2"]})
+                     "stratum": record["stratum"], "verified_success_v2": success})
     tool_trace = any(event.get("kind") == "tool_call" for line in (run / "traces.jsonl").read_text(encoding="utf-8").splitlines()
                      if line.strip() for event in json.loads(line)["trace"]["events"])
     return {"id": candidate_id, "split": "val", "status": "completed", "metrics": summary,
@@ -83,8 +86,13 @@ def _eval(candidate, env, uuid, adapter=None):
     run = RESULTS / candidate
     if (run / "metrics.json").is_file():
         return run
+    # Training already owns results/sft_v2/<id>. Score the adapter beside it.
+    run_id = f"{candidate}-scored" if run.exists() else candidate
+    run = RESULTS / run_id
+    if (run / "metrics.json").is_file():
+        return run
     args = [str(PYTHON), "scripts/run_experiment_v2.py", "--manifest", str(DATASET / "manifest.json"),
-            "--split", "val", "--run-id", candidate, "--device-uuid", uuid, "--output-root", str(RESULTS)]
+            "--split", "val", "--run-id", run_id, "--device-uuid", uuid, "--output-root", str(RESULTS)]
     if adapter:
         args.extend(["--adapter", adapter])
     _run(args, env)

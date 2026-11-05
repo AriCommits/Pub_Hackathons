@@ -1,5 +1,6 @@
 import json
 import os
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -11,16 +12,47 @@ from actproto.training.rl_config import GrpoConfigError, load_grpo_config
 from scripts.train_grpo import main
 
 CONFIG = Path("actproto/configs/grpo_v2.yaml")
+LEXSI = Path(__file__).resolve().parents[1]
+
+
+def _directory_sha256(adapter: Path) -> str:
+    digest = sha256()
+    files = sorted(path for path in adapter.rglob("*") if path.is_file())
+    for file in files:
+        digest.update(file.relative_to(adapter).as_posix().encode())
+        digest.update(file.read_bytes())
+    return digest.hexdigest()
+
+
+def _write_baseline(root: Path, payload: dict) -> None:
+    docs = root / "docs"
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "SFT_BASELINE_MANIFEST.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_plan_only_does_not_optimize_or_write_a_completed_marker(tmp_path):
     config = load_grpo_config(CONFIG)
-    payload = run_plan(config, Path("."))
+    payload = run_plan(config, tmp_path)
     assert payload["optimizes"] is False
     assert payload["completed_marker"] is False
     assert payload["baseline_present"] is False
-    assert not (tmp_path / "completed.json").exists()
+    assert not list(tmp_path.rglob("completed.json"))
+
+    _write_baseline(tmp_path, {"frozen": True})
+    present = run_plan(config, tmp_path)
+    assert present["baseline_present"] is True
+    assert present["optimizes"] is False
+    assert present["completed_marker"] is False
+    assert not list(tmp_path.rglob("completed.json"))
+
+    live = run_plan(config, LEXSI)
+    assert live["optimizes"] is False
+    assert live["completed_marker"] is False
+    marker = LEXSI / "results" / "rl_v2" / "grpo_v2" / "completed.json"
+    existed = marker.exists()
     assert main(["--plan-only", "--config", str(CONFIG)]) == 0
+    assert marker.exists() is existed
+    assert not list(tmp_path.rglob("completed.json"))
 
 
 def test_old_metadata_helper_is_no_longer_a_successful_run():
@@ -33,7 +65,45 @@ def test_old_metadata_helper_is_no_longer_a_successful_run():
 def test_missing_baseline_and_empty_prompts_fail(tmp_path):
     config = load_grpo_config(CONFIG)
     with pytest.raises(GrpoConfigError, match="S7"):
-        run_train(config, Path("."))
+        run_train(config, tmp_path)
+
+    missing_root = tmp_path / "missing-adapter"
+    _write_baseline(missing_root, {
+        "frozen": True,
+        "adapter_path": str(missing_root / "no-such-adapter"),
+        "adapter_sha256": "ab" * 32,
+    })
+    with pytest.raises(GrpoConfigError, match="adapter path does not exist"):
+        run_train(config, missing_root)
+
+    shipped = LEXSI / "docs" / "SFT_BASELINE_MANIFEST.json"
+    if shipped.is_file():
+        recorded = json.loads(shipped.read_text(encoding="utf-8"))
+        if not Path(recorded["adapter_path"]).is_dir():
+            with pytest.raises(GrpoConfigError, match="adapter path does not exist"):
+                run_train(config, LEXSI)
+
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "weights.bin").write_bytes(b"fixture-adapter")
+    matched = tmp_path / "matched"
+    _write_baseline(matched, {
+        "frozen": True,
+        "adapter_path": str(adapter),
+        "adapter_sha256": _directory_sha256(adapter),
+    })
+    with pytest.raises(GrpoConfigError, match="nonempty"):
+        run_train(config, matched)
+
+    mismatched = tmp_path / "mismatched"
+    _write_baseline(mismatched, {
+        "frozen": True,
+        "adapter_path": str(adapter),
+        "adapter_sha256": "cd" * 32,
+    })
+    with pytest.raises(GrpoConfigError, match="hash does not match"):
+        run_train(config, mismatched)
+
     assert main(["--train", "--config", str(CONFIG)]) == 2
     with pytest.raises(GrpoConfigError, match="nonempty"):
         public_prompt_rows([])

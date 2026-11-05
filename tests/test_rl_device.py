@@ -50,3 +50,15 @@ def test_parent_cuda_visible_devices_exits_nonzero_without_changing_parent():
     assert result.returncode != 0
     assert "CUDA_VISIBLE_DEVICES" in result.stderr
     assert os.environ.get("CUDA_VISIBLE_DEVICES") in (None, "")
+
+
+def test_nvidia_ordinal_follows_the_uuid_rather_than_pytorch_index():
+    from actproto.training.rl_device import ordinal_from_nvidia_rows, parse_nvidia_gpu_csv
+    text = "\n".join([
+        "0, GPU-5b885e12-623f-268c-f07c-ee33db379969",
+        "1, GPU-134c34ef-c155-b001-4e3a-b9134b072c21",
+    ])
+    rows = parse_nvidia_gpu_csv(text)
+    assert ordinal_from_nvidia_rows(rows, "134c34ef-c155-b001-4e3a-b9134b072c21") == "1"
+    swapped = parse_nvidia_gpu_csv("0, GPU-134c34ef-c155-b001-4e3a-b9134b072c21\n1, GPU-5b885e12-623f-268c-f07c-ee33db379969\n")
+    assert ordinal_from_nvidia_rows(swapped, "134c34ef-c155-b001-4e3a-b9134b072c21") == "0"

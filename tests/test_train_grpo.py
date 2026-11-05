@@ -1,11 +1,12 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from actproto.experiments.contracts import TaskSpec
 from actproto.training.grpo import build_grpo_kwargs, try_create_trainer
-from actproto.training.grpo_run import completed_marker, public_prompt_rows, run_collect_only, run_plan, run_smoke, run_train
+from actproto.training.grpo_run import completed_marker, public_prompt_rows, run_collect_only, run_plan, run_resume, run_smoke, run_train
 from actproto.training.rl_config import GrpoConfigError, load_grpo_config
 from scripts.train_grpo import main
 
@@ -73,3 +74,85 @@ def test_cpu_smoke_updates_only_lora_weights_and_resume_keeps_the_first_checkpoi
     assert resumed["preserved_checkpoint_files"] == len(before)
     for relative, data in before.items():
         assert (checkpoint / relative).read_bytes() == data
+
+
+GPU_CONFIG = Path("actproto/configs/grpo_v2_gpu.yaml")
+
+
+def test_gpu_schema_does_not_enter_cpu_fit(monkeypatch):
+    monkeypatch.setattr("actproto.training.grpo_run._fit", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("entered _fit")))
+    config = load_grpo_config(GPU_CONFIG)
+    with pytest.raises(GrpoConfigError, match="run_gpu_smoke"):
+        run_smoke(config, Path("."), Path("unused"))
+
+
+def test_gpu_train_and_resume_fail_closed(tmp_path):
+    config = load_grpo_config(GPU_CONFIG)
+    with pytest.raises(GrpoConfigError, match="Tiny Aya"):
+        run_train(config, tmp_path)
+    with pytest.raises(GrpoConfigError, match="resume is closed"):
+        run_resume(config, tmp_path, tmp_path / "results" / "rl_v2" / "grpo_gpu_smoke", tmp_path, max_steps=2)
+    assert main(["--train", "--config", str(GPU_CONFIG)]) == 2
+    assert main(["--resume", str(tmp_path), "--config", str(GPU_CONFIG)]) == 2
+
+
+def test_gpu_plan_only_writes_nothing(tmp_path):
+    config = load_grpo_config(GPU_CONFIG)
+    payload = run_plan(config, tmp_path)
+    assert payload["optimizes"] is False
+    assert payload["completed_marker"] is False
+    assert payload["config"]["schema_version"] == "grpo_v2_gpu"
+    assert payload["config"]["use_cpu"] is False
+    assert main(["--plan-only", "--config", str(GPU_CONFIG)]) == 0
+    assert not list(tmp_path.rglob("completed.json"))
+
+
+def test_gpu_smoke_without_the_live_flag_does_not_train(monkeypatch):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("GPU smoke started without the live gate")
+    monkeypatch.setattr("scripts.train_grpo.run_gpu_smoke", fail_if_called)
+    monkeypatch.setattr("scripts.train_grpo.launch_gpu_smoke", fail_if_called)
+    monkeypatch.setattr("actproto.training.grpo_run._fit", fail_if_called)
+    assert main(["--smoke", "--config", str(GPU_CONFIG)]) == 2
+
+
+def test_parent_cuda_mask_blocks_the_live_launch(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+    assert main(["--smoke", "--live-gpu", "--config", str(GPU_CONFIG)]) == 2
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "1"
+
+
+def test_live_launch_puts_the_nvidia_ordinal_only_in_the_child(monkeypatch):
+    import os
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr("scripts.train_grpo.assert_5060_idle", lambda: None)
+    monkeypatch.setattr("scripts.train_grpo.visible_ordinal_for_5060", lambda: "0")
+    seen = {}
+
+    def fake_call(cmd, env):
+        seen["cmd"] = cmd
+        seen["env"] = env
+        return 0
+
+    monkeypatch.setattr("scripts.train_grpo.subprocess.call", fake_call)
+    assert main(["--smoke", "--live-gpu", "--config", str(GPU_CONFIG)]) == 0
+    assert seen["env"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert seen["env"]["LEXSI_RL_GPU_CHILD"] == "1"
+    assert os.environ.get("CUDA_VISIBLE_DEVICES") in (None, "")
+    assert "--live-gpu" in seen["cmd"]
+
+
+def test_gpu_output_refuses_the_cpu_smoke_and_adapter_paths(tmp_path):
+    from actproto.training.grpo_run import guard_gpu_output
+    root = tmp_path / "project"
+    (root / "results" / "rl_v2" / "grpo_gpu_smoke").mkdir(parents=True)
+    (root / "results" / "rl_v2" / "grpo_cpu_smoke").mkdir()
+    fresh = root / "results" / "rl_v2" / "grpo_gpu_smoke_other"
+    # The checked-in profile writes grpo_gpu_smoke. An existing directory is refused.
+    with pytest.raises(GrpoConfigError, match="already exists"):
+        guard_gpu_output(root / "results" / "rl_v2" / "grpo_gpu_smoke", root)
+    with pytest.raises(GrpoConfigError, match="grpo_cpu_smoke"):
+        guard_gpu_output(root / "results" / "rl_v2" / "grpo_cpu_smoke", root)
+    with pytest.raises(GrpoConfigError, match="adapter"):
+        guard_gpu_output(root / "results" / "rl_v2" / "adapters" / "b1", root)
+    assert guard_gpu_output(fresh, root) == fresh.resolve()

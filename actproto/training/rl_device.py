@@ -36,3 +36,24 @@ def select_5060_ti(devices: list[DeviceRecord]) -> int:
     if "RTX 5060 Ti" not in chosen.name:
         raise DeviceSelectionError("chosen device name does not identify an RTX 5060 Ti")
     return chosen.index
+
+
+def ordinal_from_nvidia_rows(rows: list[tuple[str, str]], uuid: str) -> str:
+    """Return the nvidia-smi ordinal for a UUID. This is not a PyTorch index."""
+    target = normalize_uuid(uuid)
+    matches = [index.strip() for index, raw in rows if normalize_uuid(raw) == target]
+    if len(matches) != 1:
+        raise DeviceSelectionError("nvidia-smi has no single RTX 5060 Ti UUID")
+    return matches[0]
+
+
+def parse_nvidia_gpu_csv(text: str) -> list[tuple[str, str]]:
+    rows = []
+    for line in text.splitlines():
+        if not line.strip() or "," not in line:
+            continue
+        index, raw = [part.strip() for part in line.split(",", 1)]
+        if index.lower() == "index":
+            continue
+        rows.append((index, raw))
+    return rows

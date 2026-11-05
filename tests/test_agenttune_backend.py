@@ -71,3 +71,66 @@ def test_fixture_episode_feeds_observation_and_stops_at_finish():
     assert calls == [('calculator', {'expression': '1+1'})]
     assert result['finish']['name'] == 'finish'
     assert result['observations'] == ['2']
+
+
+def test_adapter_aligns_genuine_sampling_logprobs_and_tool_spans():
+    from actproto.integrations.agenttune_backend import AgenticRolloutAdapter
+    tokenizer = CharacterTokenizer()
+    actions = iter(['{"name":"calculator","arguments":{"expression":"1+1"}}',
+                    '{"name":"finish","arguments":{"answer":"2"}}'])
+    def generate(ids, trainer):
+        action = next(actions)
+        return action, list(map(ord, action)), [-0.5] * len(action)
+    adapter = AgenticRolloutAdapter(tokenizer, generate, lambda name, args: '2')
+    output = adapter(['calculate'], object())
+    mask, logprobs = output['env_mask'][0], output['logprobs'][0]
+    assert len(mask) == len(logprobs) == len(output['completion_ids'][0])
+    assert all(value == (-0.5 if active else 0.0) for active, value in zip(mask, logprobs))
+    assert output['observations'] == [['2']]
+    assert output['finish'][0]['name'] == 'finish'
+
+
+def test_adapter_rejects_missing_or_nonfinite_sampling_logprobs():
+    from actproto.integrations.agenttune_backend import AgenticRolloutAdapter
+    action = '{"name":"finish","arguments":{}}'
+    for probs in ([], [float('nan')] * len(action)):
+        adapter = AgenticRolloutAdapter(CharacterTokenizer(),
+            lambda ids, trainer: (action, list(map(ord, action)), probs), lambda name, args: None)
+        with pytest.raises(BackendCompatibilityError):
+            adapter(['q'], object())
+
+
+def test_adapter_rejects_nonpublic_prompt_metadata():
+    from actproto.integrations.agenttune_backend import AgenticRolloutAdapter
+    adapter = AgenticRolloutAdapter(CharacterTokenizer(), None, None)
+    with pytest.raises(BackendCompatibilityError, match='public'):
+        adapter([{'prompt': 'question', 'answer': 'private'}], object())
+
+
+def test_source_provenance_accepts_only_pinned_git_commit(monkeypatch):
+    import json
+    import actproto.integrations.agenttune_backend as backend
+    revision = 'd4db4c12d52342227c4113a70183d0f64aa2f345'
+    class Distribution:
+        def __init__(self, value):
+            self.value = value
+        def read_text(self, name):
+            return json.dumps({'vcs_info': {'vcs': 'git', 'commit_id': self.value}})
+    monkeypatch.setattr(backend.importlib.metadata, 'distribution', lambda name: Distribution(revision))
+    assert backend.validate_agenttune_source() == revision
+    monkeypatch.setattr(backend.importlib.metadata, 'distribution', lambda name: Distribution('wrong'))
+    with pytest.raises(BackendCompatibilityError, match='revision'):
+        backend.validate_agenttune_source()
+
+
+def test_mismatched_sample_is_rejected_before_tool_execution():
+    from actproto.integrations.agenttune_backend import run_fixture_episode
+    actions, calls = [], []
+    def generate(ids):
+        actions.append(ids)
+        return '{"name":"calculator","arguments":{}}', [999]
+    with pytest.raises(BackendCompatibilityError, match='Sampled action'):
+        run_fixture_episode(CharacterTokenizer(), [{'role': 'user', 'content': 'q'}],
+                            generate, lambda name, args: calls.append(name))
+    assert len(actions) == 1
+    assert calls == []

@@ -1,6 +1,7 @@
 """Probe real AgentTune construction and the locally cached Tiny Aya template."""
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import tempfile
@@ -10,7 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main() -> int:
-    from actproto.integrations.agenttune_backend import create_trainer, episode_token_mask, run_fixture_episode, validate_versions
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fixture", action="store_true", help="verify the CPU fixture only")
+    args = parser.parse_args()
+    from actproto.integrations.agenttune_backend import AgenticRolloutAdapter, create_trainer, episode_token_mask, run_fixture_episode, validate_versions
     from datasets import Dataset
     from tokenizers import Tokenizer, models, pre_tokenizers
     from transformers import AutoTokenizer, GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast
@@ -74,6 +78,39 @@ def main() -> int:
         raise RuntimeError("Fixture loop failed to terminate on finish")
     if "Tool result:\n2" not in aya.decode(fixture_prompts[1]):
         raise RuntimeError("Fixture did not feed the observation into the second prompt")
+    integrated_prompts = []
+    def integrated_generate(prompt_ids, trainer):
+        integrated_prompts.append(list(prompt_ids))
+        action = [
+            '<tool_call>{"name":"calculator","arguments":{"expression":"1+1"}}</tool_call>',
+            '<tool_call>{"name":"finish","arguments":{"answer":"2"}}</tool_call>',
+        ][(len(integrated_prompts) - 1) % 2]
+        sampled = aya.encode(action, add_special_tokens=False)
+        return action, sampled, [-0.5] * len(sampled)  # fixed probe policy, not a model sample
+    adapter = AgenticRolloutAdapter(aya, integrated_generate, lambda name, arguments: "2")
+    tiny_aya_vocab_model = GPT2LMHeadModel(GPT2Config(vocab_size=len(aya), n_layer=1, n_head=1,
+        n_embd=8, n_positions=1024, bos_token_id=aya.bos_token_id,
+        eos_token_id=aya.eos_token_id, pad_token_id=aya.pad_token_id))
+    with tempfile.TemporaryDirectory() as output:
+        integrated = create_trainer(model=tiny_aya_vocab_model, processing_class=aya,
+            reward_funcs=lambda completions, **kwargs: [float(i % 2) for i in range(len(completions))],
+            train_dataset=Dataset.from_dict({"prompt": ["calculate", "calculate"]}),
+            rollout_func=adapter, output_dir=output, num_generations=2,
+            per_device_train_batch_size=2, gradient_accumulation_steps=1,
+            bf16=False, fp16=False, report_to="none", use_cpu=True, beta=0.0)
+        integrated.setup_data()
+        integrated.setup_trainer()
+        scored = integrated.trainer._generate_and_score_completions(
+            [{"prompt": "calculate"}, {"prompt": "calculate"}])
+        if len(integrated_prompts) != 4 or "Tool result:\n2" not in aya.decode(integrated_prompts[1]):
+            raise RuntimeError("Integrated tool loop did not supply its observation or stop at finish")
+        if scored["tool_mask"].shape != scored["completion_ids"].shape:
+            raise RuntimeError("Integrated policy mask does not align with completion IDs")
+        if int(scored["tool_mask"][0].sum()) != sum(len(aya.encode(x, add_special_tokens=False)) for x in [
+            '<tool_call>{"name":"calculator","arguments":{"expression":"1+1"}}</tool_call>',
+            '<tool_call>{"name":"finish","arguments":{"answer":"2"}}</tool_call>',
+        ]):
+            raise RuntimeError("Integrated trainer lost the policy mask")
     from agenttune.agentic.rollout_engines.rollout_factory import create_rollout_fn
 
     class FakeEngine:
@@ -118,7 +155,9 @@ def main() -> int:
         raise RuntimeError("Backend did not mask any tool-result tokens")
     print(json.dumps({"versions": versions, "trainer": trainer_type, "tokens": len(ids),
                       "policy_tokens": sum(mask), "cuda_available": torch.cuda.is_available(),
-                      "rollout_mask_verified": False, "fake_engine_decisions": len(engine.seen), "raw_result_masked_tokens": mask_zero_count, "fixture_decisions": len(fixture_prompts), "fixture_policy_tokens": sum(fixture["policy_mask"]), "custom_mask_reaches_trainer": True}, indent=2))
+                      "rollout_mask_verified": False, "fake_engine_decisions": len(engine.seen), "raw_result_masked_tokens": mask_zero_count, "fixture_decisions": len(fixture_prompts), "fixture_policy_tokens": sum(fixture["policy_mask"]), "custom_mask_reaches_trainer": True, "integrated_fixture_decisions": len(integrated_prompts)}, indent=2))
+    if args.fixture:
+        return 0
     # A constructed trainer and template probe do not establish backend loss masking.
     print("INCOMPLETE: actual tool-loop loss mask and GPU support remain unverified", file=sys.stderr)
     return 1
@@ -130,6 +169,3 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"Backend probe failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         raise SystemExit(1)
-
-
-

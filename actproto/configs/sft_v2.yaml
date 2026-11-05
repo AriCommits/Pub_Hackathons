@@ -1,0 +1,14 @@
+model_id: CohereLabs/tiny-aya-global
+revision: af89d219b53ed9b13b8a4645f9c8028973510324
+template_name: default
+max_length: 8192
+rank: 16
+alpha: 32
+dropout: 0.05
+learning_rate: 0.0002
+batch_size: 1
+gradient_accumulation_steps: 8
+epochs: 2
+seed: 42
+dtype: bfloat16
+quantization: none

@@ -413,8 +413,9 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
     )
     assert conversational == [0.0]
     assert all(reward <= 0 for reward in rewards)
-    assert "_executed_trace_reward" in grpo_run._train_tiny_aya.__code__.co_names
-    assert "_public_completion_reward" not in grpo_run._train_tiny_aya.__code__.co_names
+    source = inspect.getsource(grpo_run._train_tiny_aya)
+    assert "_executed_trace_reward" in source
+    assert "_public_completion_reward" not in source
     assert "AgenticRolloutAdapter" in grpo_run._fit.__code__.co_names
     assert "_executed_trace_reward" not in grpo_run._fit.__code__.co_names
     assert "_public_completion_reward" not in grpo_run._fit.__code__.co_names
@@ -428,6 +429,26 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
     assert "rollout_func=rollout" in inspect.getsource(grpo_run._train_tiny_aya)
     assert "_study_rollout" not in grpo_run._fit.__code__.co_names
     assert "_study_rollout" not in grpo_run._gpu_attempt.__code__.co_names
+
+
+def test_tied_pair_records_zero_variance_and_does_not_change_weights():
+    from actproto.training import grpo_run
+    from actproto.training.grpo_run import format_step_log, tied_step_leaves_weights
+
+    weights = {"lora_A": 0.25, "lora_B": -1.0}
+    unchanged, record = tied_step_leaves_weights(weights, [0.0, 0.0], 2)
+    assert unchanged == weights
+    assert record["zero_variance_groups"] == 1
+    assert record["advantages"] == [0.0, 0.0]
+    assert record["reward_std"] == 0.0
+    assert record["grad_norm"] == 0.0
+    assert record["all_groups_tied"] is True
+    line = format_step_log({}, record)
+    assert "zero_variance_groups=1" in line
+    assert "advantages=0" in line
+    assert "scale_rewards" not in inspect.getsource(grpo_run._train_tiny_aya)
+    with pytest.raises(GrpoConfigError, match="all tied"):
+        tied_step_leaves_weights(weights, [0.0, 1.0], 2)
 
 
 def test_live_reward_scores_the_shaped_trace_and_ignores_finish_text():

@@ -212,7 +212,7 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
     )
 
 
-def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, **kwargs):
+def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, group_size=2, **kwargs):
     """Score captured tool sessions with ``bounded_shaped_v1``.
 
     A decoded completion that merely contains "finish" is not success. The
@@ -223,7 +223,9 @@ def _executed_trace_reward(completions, reward_sessions=None, completion_reasons
     from actproto.training.rewards_v2 import TrustedRewardSession, score_executed_session
 
     if not reward_sessions:
-        return [0.0 for _ in completions]
+        rewards = [0.0 for _ in completions]
+        _remember_step(rewards, group_size)
+        return rewards
     if any(isinstance(session, (str, bytes, dict, list)) for session in reward_sessions):
         raise GrpoConfigError("serialized rollout JSON is not execution evidence")
     if completion_reasons is None or len(completion_reasons) != len(reward_sessions) or len(reward_sessions) != len(completions):
@@ -233,7 +235,68 @@ def _executed_trace_reward(completions, reward_sessions=None, completion_reasons
         if not isinstance(session, TrustedRewardSession):
             raise GrpoConfigError("training reward requires a live trusted session")
         rewards.append(score_executed_session(session, completion_reason=str(reason)))
+    _remember_step(rewards, group_size)
     return rewards
+
+
+_LAST_STEP: dict = {}
+
+
+def reward_step_record(rewards: list[float], group_size: int, grad_norm: float | None = None) -> dict:
+    """Record a GRPO step. A tied group has advantage 0 and is not given a fake gradient."""
+    from actproto.training.rewards_v2 import group_advantages
+
+    if group_size < 2 or len(rewards) < group_size or len(rewards) % group_size:
+        raise GrpoConfigError("rewards must form complete groups of at least 2")
+    advantages: list[float] = []
+    zero = 0
+    groups = [rewards[start:start + group_size] for start in range(0, len(rewards), group_size)]
+    for group in groups:
+        values, info = group_advantages(group)
+        advantages.extend(values)
+        zero += int(info["zero_variance_groups"])
+    center = sum(rewards) / len(rewards)
+    variance = sum((item - center) ** 2 for item in rewards) / len(rewards)
+    all_tied = zero == len(groups)
+    if all_tied and any(value != 0.0 for value in advantages):
+        raise GrpoConfigError("a tied group produced a nonzero advantage")
+    return {
+        "reward_mean": center,
+        "reward_std": variance ** 0.5,
+        "grad_norm": grad_norm,
+        "zero_variance_groups": zero,
+        "groups": len(groups),
+        "advantages": advantages,
+        "all_groups_tied": all_tied,
+    }
+
+
+def tied_step_leaves_weights(weights: dict, rewards: list[float], group_size: int) -> tuple[dict, dict]:
+    """A fully tied step records zero variance and does not change frozen weights."""
+    record = reward_step_record(rewards, group_size, grad_norm=0.0)
+    if not record["all_groups_tied"]:
+        raise GrpoConfigError("this helper only covers a step whose groups are all tied")
+    return dict(weights), record
+
+
+def _remember_step(rewards: list[float], group_size: int) -> None:
+    if group_size < 2 or len(rewards) < group_size or len(rewards) % group_size:
+        return
+    _LAST_STEP.clear()
+    _LAST_STEP.update(reward_step_record(rewards, group_size))
+
+
+def format_step_log(logs: dict, diagnostics: dict) -> str:
+    """One step line: reward mean, reward std, gradient norm, and zero-variance groups."""
+    reward_mean = logs.get("reward", diagnostics.get("reward_mean"))
+    reward_std = logs.get("reward_std", diagnostics.get("reward_std"))
+    grad_norm = logs.get("grad_norm", diagnostics.get("grad_norm"))
+    zero = diagnostics.get("zero_variance_groups", 0)
+    groups = diagnostics.get("groups", 0)
+    text = f"reward_mean={reward_mean} reward_std={reward_std} grad_norm={grad_norm} zero_variance_groups={zero}"
+    if groups and zero == groups:
+        text += " advantages=0 all_groups_tied=true"
+    return text
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -266,7 +329,10 @@ def _train_tiny_aya(
     train_manifest: Path,
 ) -> dict:
     """One bounded bf16 GRPO run from the frozen adapter. An OOM is recorded once."""
+    from actproto.training.rl_config import guard_tool_sampling
+
     refuse_historical_output(output_dir)
+    guard_tool_sampling(config)
     import yaml
 
     sft = yaml.safe_load((project_root / "actproto" / "configs" / "sft_v2.yaml").read_text(encoding="utf-8"))
@@ -318,9 +384,22 @@ def _train_tiny_aya(
     print(f"train_rows={len(rows)} trainable_lora={len(trainable)}", flush=True)
 
     class StepLog(TrainerCallback):
-        def on_step_end(self, args, state, control, **kwargs):
+        def on_log(self, args, state, control, logs=None, **kwargs):
             del args, control, kwargs
-            print(f"global_step={state.global_step}", flush=True)
+            if not logs:
+                return
+            line = format_step_log(logs, _LAST_STEP)
+            print(f"global_step={state.global_step} {line}", flush=True)
+            with (output_dir / "step_diagnostics.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({
+                    "global_step": state.global_step,
+                    "line": line,
+                    "reward_mean": _LAST_STEP.get("reward_mean"),
+                    "reward_std": _LAST_STEP.get("reward_std"),
+                    "grad_norm": logs.get("grad_norm", _LAST_STEP.get("grad_norm")),
+                    "zero_variance_groups": _LAST_STEP.get("zero_variance_groups"),
+                    "all_groups_tied": _LAST_STEP.get("all_groups_tied"),
+                }, sort_keys=True) + "\n")
 
     from actproto.training.rl_dataset import VerifiedTrainFixtures
 
@@ -330,7 +409,9 @@ def _train_tiny_aya(
     wrapper = create_trainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=_executed_trace_reward,
+        reward_funcs=lambda completions, **kwargs: _executed_trace_reward(
+            completions, group_size=config.num_generations, **kwargs,
+        ),
         train_dataset=Dataset.from_list(rows),
         rollout_func=rollout,
         callbacks=[StepLog()],

@@ -1,0 +1,23 @@
+schema_version: grpo_v2_gpu
+reference_policy: beta_zero
+beta: 0.0
+learning_rate: 5.0e-6
+num_generations: 2
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 2
+max_completion_length: 256
+temperature: 0.8
+top_p: 0.95
+gradient_checkpointing: true
+use_cpu: false
+use_vllm: false
+bf16: true
+fp16: false
+report_to: none
+device_name: NVIDIA GeForce RTX 5060 Ti
+device_uuid: 134c34ef-c155-b001-4e3a-b9134b072c21
+max_steps: 20
+seed: 42
+output_dir: results/rl_v2/grpo_gpu_tools
+baseline_manifest: docs/SFT_BASELINE_MANIFEST.json
+train_manifest: data/benchmarks/tooluse_v2/manifest.json

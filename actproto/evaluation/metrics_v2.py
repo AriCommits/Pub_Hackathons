@@ -59,6 +59,8 @@ def episode_metrics(task: TaskSpec, trace: ExecutionTrace, result: VerificationR
     return {"answer_success": result.answer_success, "execution_compliance": result.execution_compliance,
             "verified_success_v2": result.verified_success_v2, "tool_calls": len(calls),
             "invalid_parsing": sum(e.get("kind") == "parse_error" for e in trace.events),
+            "context_overflows": sum(e.get("kind") == "context_overflow" for e in trace.events),
+            "truncations": sum(e.get("kind") == "truncation" for e in trace.events),
             "failed_execution": failures,
             "noncompliant_calls": sum(invalid_call(e) for e in calls),
             "model_invocations": trace.model_invocations, "generated_tokens": trace.generated_tokens,

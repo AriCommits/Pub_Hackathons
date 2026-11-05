@@ -7,6 +7,12 @@ from actproto.agent.prompts import messages_for_template
 from actproto.training.sft_masks import selected_template
 
 
+class ContextLimitExceeded(ValueError):
+    def __init__(self, tokens, limit):
+        self.tokens, self.limit = tokens, limit
+        super().__init__(f'prompt length {tokens} exceeds available context {limit}')
+
+
 @dataclass(frozen=True)
 class Generation:
     text: str
@@ -45,8 +51,13 @@ class ModelPolicy:
         encoded = self.tokenizer.apply_chat_template(messages_for_template(messages),
             chat_template=self.template, add_generation_prompt=True, tokenize=True,
             return_dict=True, return_tensors='pt')
-        encoded = {k: v.to(_parameter_device(self.model)) for k, v in encoded.items() if hasattr(v, 'to')}
         prompt_len = int(encoded['input_ids'].shape[-1])
+        context_limit = getattr(self.model.config, 'max_position_embeddings', None)
+        if not isinstance(context_limit, int) or context_limit < 1:
+            raise ValueError('model context limit unavailable')
+        if prompt_len + self.max_new_tokens > context_limit:
+            raise ContextLimitExceeded(prompt_len, context_limit - self.max_new_tokens)
+        encoded = {k: v.to(_parameter_device(self.model)) for k, v in encoded.items() if hasattr(v, 'to')}
         with torch.inference_mode():
             output = self.model.generate(**encoded, max_new_tokens=self.max_new_tokens, do_sample=False,
                 pad_token_id=self.tokenizer.pad_token_id,

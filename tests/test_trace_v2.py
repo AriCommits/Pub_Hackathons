@@ -83,3 +83,17 @@ def test_correct_finish_only_outcome_task_is_valid():
         'arguments': {'answer': task.oracle['answer']}}), 1)
     trace, _ = rollout(task, env, policy)
     assert verify(task, trace).verified_success_v2
+
+
+def test_context_overflow_is_recorded_as_failed_trace():
+    from actproto.agent.inference_v2 import ContextLimitExceeded
+    env, _, task = example()
+    def policy(messages):
+        raise ContextLimitExceeded(9000, 7936)
+    trace, _ = rollout(task, env, policy)
+    assert trace.completion_reason == 'context_overflow'
+    assert trace.events == [{'kind': 'context_overflow', 'tokens': 9000, 'limit': 7936}]
+    from actproto.evaluation.metrics_v2 import episode_metrics
+    verdict = verify(task, trace)
+    assert episode_metrics(task, trace, verdict)['context_overflows'] == 1
+    assert not verdict.verified_success_v2

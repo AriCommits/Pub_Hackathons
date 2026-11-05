@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from time import perf_counter
 
-from actproto.agent.inference_v2 import Generation, parse_single_call
+from actproto.agent.inference_v2 import ContextLimitExceeded, Generation, parse_single_call
 from actproto.agent.prompts import system_prompt
 from actproto.experiments.contracts import ExecutionTrace
 from actproto.tools.schemas import validate_args
@@ -12,6 +12,8 @@ from actproto.tools.schemas import validate_args
 def rollout(task, env, policy, *, interventions=()):
     if any(item != 'retry_parse' for item in interventions) or len(interventions) != len(set(interventions)):
         raise ValueError('unsupported or duplicate intervention')
+    if hasattr(env, 'for_task'):
+        env = env.for_task(task.task_id)
     if env.identifier != task.environment_id or env.digest != task.fixture_hash:
         raise ValueError('fixture environment mismatch')
     messages = [{'role': 'system', 'content': system_prompt()}, {'role': 'user', 'content': task.prompt}]
@@ -25,7 +27,12 @@ def rollout(task, env, policy, *, interventions=()):
             if attempt:
                 prompt.extend([{'role': 'assistant', 'content': generated.text},
                                {'role': 'user', 'content': 'Your previous response was invalid. Emit exactly one valid tool call.'}])
-            generated = policy(prompt)
+            try:
+                generated = policy(prompt)
+            except ContextLimitExceeded as exc:
+                events.append({'kind': 'context_overflow', 'tokens': exc.tokens, 'limit': exc.limit})
+                completion = 'context_overflow'
+                break
             if not isinstance(generated, Generation) or generated.tokens < 0:
                 raise ValueError('policy must return Generation with nonnegative token count')
             tokens += generated.tokens

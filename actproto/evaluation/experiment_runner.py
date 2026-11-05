@@ -15,6 +15,50 @@ from actproto.experiments.contracts import TaskSpec
 from actproto.experiments.manifest import hash_file
 
 
+class ScopedFixtureView:
+    """Expose only one split/axis while retaining the verified full-fixture identity."""
+    def __init__(self, full_env, scoped_env):
+        self.identifier = full_env.identifier
+        self.digest = full_env.digest
+        self._scoped_env = scoped_env
+
+    def call(self, environment_id, name, arguments):
+        return self._scoped_env.call(environment_id, name, arguments)
+
+
+class ScopedFixtures:
+    def __init__(self, full_env, examples_by_axis):
+        self.identifier, self.digest = full_env.identifier, full_env.digest
+        self._views, self._task_axis = {}, {}
+        known = {record['id']: record for record in full_env.records}
+        if len(known) != len(full_env.records):
+            raise ValueError('duplicate fixture record IDs')
+        for axis, examples in examples_by_axis.items():
+            ids = set()
+            for example in examples:
+                task_id = example['task']['task_id']
+                entity = example.get('entity')
+                if task_id in self._task_axis or entity not in known:
+                    raise ValueError('duplicate task or missing split entity')
+                self._task_axis[task_id] = axis
+                ids.add(entity)
+            records = tuple(row for row in full_env.records if row['id'] in ids)
+            products = {row['product'] for row in records}
+            sales = tuple(row for row in full_env.sales if row['product'] in products)
+            # Document IDs are tied to records through each product's title/text.
+            # Match product tokens exactly, avoiding accidental prefix matches.
+            docs = tuple(doc for doc in full_env.documents if
+                         products.intersection((doc['title'] + ' ' + doc['text']).split()))
+            scoped = FixtureEnvironment(full_env.identifier, records, sales, docs)
+            self._views[axis] = ScopedFixtureView(full_env, scoped)
+
+    def for_task(self, task_id):
+        try:
+            return self._views[self._task_axis[task_id]]
+        except KeyError as exc:
+            raise ValueError('task is not in loaded split') from exc
+
+
 def load_data(manifest_path, split, *, final_eval=False, selection=None, callback=False):
     if split not in ('train', 'val', 'test'):
         raise ValueError('unknown split')
@@ -46,19 +90,27 @@ def load_data(manifest_path, split, *, final_eval=False, selection=None, callbac
     if env.digest != manifest.get('fixture_hash') or env.identifier != manifest.get('environment_id'):
         raise ValueError('fixture manifest mismatch')
     tasks = []
+    by_axis = {}
     for name in filenames:
         for line in (path.parent / name).read_text(encoding='utf-8').splitlines():
             if line.strip():
-                task = TaskSpec.from_dict(json.loads(line)['task'])
+                example = json.loads(line)
+                axis = name.removesuffix('.jsonl')
+                if example.get('axis') != axis:
+                    raise ValueError('task axis mismatch')
+                by_axis.setdefault(axis, []).append(example)
+                task = TaskSpec.from_dict(example['task'])
                 if task.split != split:
                     raise ValueError('task split mismatch')
                 tasks.append(task)
     if not tasks:
         raise ValueError('empty benchmark split')
-    return env, tasks
+    return ScopedFixtures(env, by_axis), tasks
 
 
 def evaluate(tasks, env, policy, *, heartbeat=lambda: None, interventions=()):
+    if not isinstance(env, ScopedFixtures):
+        raise ValueError('evaluation requires split-scoped fixtures')
     records, strata = [], defaultdict(list)
     for task in tasks:
         heartbeat()
@@ -78,7 +130,9 @@ def evaluate(tasks, env, policy, *, heartbeat=lambda: None, interventions=()):
                'micro_verified_success_v2': mean(m['verified_success_v2'] for m in all_metrics),
                'per_stratum': per_stratum, 'argument_correctness': mean(argument) if argument else 1.0,
                'invalid_calls': sum(m['noncompliant_calls'] + m['invalid_parsing'] for m in all_metrics),
-               'generated_tokens': sum(m['generated_tokens'] for m in all_metrics), 'task_count': len(records)}
+               'generated_tokens': sum(m['generated_tokens'] for m in all_metrics),
+               'context_overflows': sum(m['context_overflows'] for m in all_metrics),
+               'truncations': sum(m['truncations'] for m in all_metrics), 'task_count': len(records)}
     return records, summary
 
 

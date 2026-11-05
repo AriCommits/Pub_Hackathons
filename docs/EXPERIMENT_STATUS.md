@@ -260,3 +260,5 @@ B2 rerun stalled: the RTX 4060 worker (pid 22068) held 7.9 GB at 0% GPU and 0 CP
 - CUDA GRPO fixture smoke, 2026-11-05: one bf16 LoRA step on the 1-layer GPT-2 fixture, device UUID `134c34ef-c155-b001-4e3a-b9134b072c21`, global_step 1, baseline_loaded false, reference_policy beta_zero. Payload: `results/rl_v2/grpo_gpu_smoke/completed.json`. This is not a Tiny Aya GRPO measurement.
 
 - Tiny Aya bf16 load, 2026-11-05: RTX 5060 Ti UUID `134c34ef-c155-b001-4e3a-b9134b072c21`, allocated_bytes 6820222464, reserved_bytes 6834618368, peak_allocated_bytes 6821362688, forward_peak_allocated_bytes 6821362688. `grpo_fit_claimed` is false. Report: `results/rl_v2/gpu_memory/tiny_aya_bf16.json`.
+
+- Tool-reward GRPO, 2026-11-05: `results/rl_v2/grpo_gpu_tools`, 20 steps on the 5060 Ti. Every step logged reward `-0.1`, reward_std `0`, grad_norm `0`, and a tied group. `checkpoint-20/adapter_model.safetensors` matches e2 (`2da2899c0fd2f5ca0bffc32c2e9201e0b7bab8b1758d2fde429ff19cf50be8bd`). Negative result. The sealed test split was not opened. `grpo_gpu_e2` remains the earlier zero-reward control and did not change the adapter either.

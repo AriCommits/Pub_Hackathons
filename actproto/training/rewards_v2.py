@@ -155,6 +155,18 @@ class TrustedRewardSession:
                             tuple(verdict.reasons))
 
 
+def score_executed_session(session: TrustedRewardSession, *, completion_reason: str) -> float:
+    """Score one live session with the checked-in shaped verifier reward.
+
+    There is no token-length term. Serialized traces are not accepted.
+    """
+    if not isinstance(session, TrustedRewardSession):
+        raise TypeError("a live TrustedRewardSession is required")
+    if not isinstance(completion_reason, str) or not completion_reason:
+        raise ValueError("completion_reason is required")
+    return session.score(completion_reason=completion_reason, version=SHAPED_VERSION).reward
+
+
 def group_advantages(rewards: list[float]) -> tuple[list[float], dict[str, Any]]:
     """Population-standardized advantages; all-equal groups are exactly zero."""
     if len(rewards) < 2 or any(isinstance(x, bool) or not isinstance(x, (int, float))

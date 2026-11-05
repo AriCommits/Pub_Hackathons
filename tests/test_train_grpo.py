@@ -430,6 +430,33 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
     assert "_study_rollout" not in grpo_run._gpu_attempt.__code__.co_names
 
 
+def test_live_reward_scores_the_shaped_trace_and_ignores_finish_text():
+    from actproto.agent.harness import DictToolHarness
+    from actproto.training.grpo_run import _executed_trace_reward
+    from actproto.training.rewards_v2 import TrustedRewardSession, group_advantages
+
+    spec = TaskSpec("t", "g", "train", "What is 2+2?", "outcome", {"answer": "4", "valid_call_bound": 1}, [],
+                    {"type": "exact"}, 4, "env", "hash")
+    success = TrustedRewardSession(spec, DictToolHarness())
+    success.execute("calculator", {"expression": "2+2"})
+    success.execute("finish", {"answer": "4"})
+    invalid = TrustedRewardSession(spec, DictToolHarness())
+    invalid.invalid_attempt("parse_error")
+    other = TrustedRewardSession(spec, DictToolHarness())
+    other.invalid_attempt("parse_error")
+    long_text = "finish " * 40
+    rewards = _executed_trace_reward(
+        ["finish", long_text, "finish"],
+        [success, invalid, other],
+        ["finish", "parse_error", "parse_error"],
+    )
+    assert rewards[0] == pytest.approx(0.95)
+    assert rewards[1] == pytest.approx(-0.10)
+    assert rewards[1] == rewards[2]
+    assert rewards[0] > 0 > rewards[1]
+    assert group_advantages([rewards[1], rewards[2]])[0] == [0.0, 0.0]
+
+
 def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeypatch):
     import json
 

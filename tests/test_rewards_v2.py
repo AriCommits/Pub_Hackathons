@@ -112,6 +112,36 @@ def test_success_always_outranks_failure_across_penalty_caps():
     assert min(scores) > max(failures)
 
 
+def test_shaped_session_wrapper_covers_success_invalid_duplicate_and_excess():
+    from actproto.training.rewards_v2 import score_executed_session
+
+    spec = task(mode='outcome', oracle={'answer': '4', 'valid_call_bound': 1})
+    success = TrustedRewardSession(spec, DictToolHarness())
+    success.execute('calculator', {'expression': '2+2'})
+    success.execute('finish', {'answer': '4'})
+    # One extra call beyond the bound, and only because the episode verified.
+    assert score_executed_session(success, completion_reason='finish') == pytest.approx(1 - 0.05)
+
+    invalid = TrustedRewardSession(spec, DictToolHarness())
+    invalid.invalid_attempt('parse_error')
+    assert score_executed_session(invalid, completion_reason='parse_error') == pytest.approx(-0.10)
+
+    duplicate = TrustedRewardSession(spec, DictToolHarness())
+    duplicate.execute('calculator', {'expression': '2+2'})
+    duplicate.execute('calculator', {'expression': '2+2'})
+    duplicate.execute('finish', {'answer': 'wrong'})
+    failure = score_executed_session(duplicate, completion_reason='finish')
+    assert failure == pytest.approx(-0.05)
+    clean = TrustedRewardSession(spec, DictToolHarness())
+    clean.execute('finish', {'answer': 'wrong'})
+    clean_reward = score_executed_session(clean, completion_reason='finish')
+    assert clean_reward == 0
+    assert (1 - 0.05) > clean_reward
+    assert group_advantages([clean_reward, clean_reward]) == ([0.0, 0.0], {'zero_variance_groups': 1, 'groups': 1})
+    with pytest.raises(TypeError):
+        score_executed_session({'reward': 1}, completion_reason='finish')
+
+
 def test_no_tool_alias_is_a_valid_zero_penalty_outcome():
     spec = task(mode='outcome')
     ledger = collect(spec, [('no_tool', {'answer': '4'})], version=SHAPED_VERSION)

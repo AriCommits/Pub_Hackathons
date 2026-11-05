@@ -212,20 +212,28 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
     )
 
 
-def _executed_trace_reward(completions, reward_sessions=None, **kwargs):
-    """Score an in-process tool session. A finish string with no trace is not success.
+def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, **kwargs):
+    """Score captured tool sessions with ``bounded_shaped_v1``.
 
-    Serialized rollout JSON is not execution evidence. Later sprints attach
-    ``bounded_shaped_v1`` once a live session is present; until then a missing
-    session is a non-positive reward and a supplied session is refused rather
-    than scored from the decoded text.
+    A decoded completion that merely contains "finish" is not success. The
+    completion text is ignored. Serialized rollout JSON is not evidence, and
+    no token-length bonus is added.
     """
     del kwargs
+    from actproto.training.rewards_v2 import TrustedRewardSession, score_executed_session
+
     if not reward_sessions:
         return [0.0 for _ in completions]
-    if any(isinstance(session, (str, dict, list)) for session in reward_sessions):
+    if any(isinstance(session, (str, bytes, dict, list)) for session in reward_sessions):
         raise GrpoConfigError("serialized rollout JSON is not execution evidence")
-    raise GrpoConfigError("executed traces are not scored until the shaped verifier is attached")
+    if completion_reasons is None or len(completion_reasons) != len(reward_sessions) or len(reward_sessions) != len(completions):
+        raise GrpoConfigError("each executed trace needs one completion reason")
+    rewards = []
+    for session, reason in zip(reward_sessions, completion_reasons):
+        if not isinstance(session, TrustedRewardSession):
+            raise GrpoConfigError("training reward requires a live trusted session")
+        rewards.append(score_executed_session(session, completion_reason=str(reason)))
+    return rewards
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:

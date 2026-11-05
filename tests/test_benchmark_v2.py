@@ -58,3 +58,41 @@ def test_training_public_data_and_repair_limits(dataset):
 
     with pytest.raises(ValueError):
         repair_mix(train, [variant], lambda e: False)
+
+def test_gold_traces_pass_shared_strict_verifier(dataset):
+    from actproto.evaluation.verification_v2 import verify
+    from actproto.experiments.contracts import TaskSpec
+
+    env, examples, _, _ = dataset
+    failures = []
+    for example in examples:
+        task = TaskSpec.from_dict(example["task"])
+        result = verify(task, replay_gold(example, env))
+        if not result.verified_success_v2:
+            failures.append((task.task_id, result.reasons))
+    assert not failures, failures[:10]
+
+
+def test_generated_train_rows_pass_real_tokenizer_preflight(dataset, tmp_path):
+    transformers = pytest.importorskip("transformers")
+    yaml = pytest.importorskip("yaml")
+    from pathlib import Path
+    from actproto.training.sft_v2 import preflight, read_rows
+
+    config = yaml.safe_load(Path("actproto/configs/sft_v2.yaml").read_text(encoding="utf-8"))
+    try:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            config["model_id"], revision=config["revision"], local_files_only=True)
+    except OSError:
+        pytest.skip("pinned tokenizer not cached")
+    _, examples, _, _ = dataset
+    train = [e for e in examples if e["axis"] == "train"]
+    samples = [next(e for e in train if e["task"]["stratum"] == name) for name in STRATA]
+    samples += [next(e for e in train if e["task"]["stratum"] == "recovery_no_tool"
+                     and len(e["gold_calls"]) == count) for count in (1, 3)]
+    path = tmp_path / "train.jsonl"
+    path.write_text("".join(json.dumps(training_row(e)) + "\n" for e in samples), encoding="utf-8")
+    encoded, report = preflight(tokenizer, read_rows(path), config)
+    assert report["accepted_rows"] == len(samples)
+    assert report["excluded_rows"] == 0
+    assert all(any(label != -100 for label in item["labels"]) for item in encoded)

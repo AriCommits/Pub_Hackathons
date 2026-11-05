@@ -1,0 +1,13 @@
+schema_version: reward_v2
+primary:
+  version: verified_success_v2
+  success_weight: 1.0
+optional_shaped:
+  version: bounded_shaped_v1
+  invalid_weight: 0.10
+  invalid_cap: 3
+  duplicate_weight: 0.05
+  duplicate_cap: 3
+  excess_weight: 0.05
+  excess_cap: 4
+  excess_success_conditioned: true

@@ -431,21 +431,51 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
     assert "_study_rollout" not in grpo_run._gpu_attempt.__code__.co_names
 
 
+def test_val_comparison_rejects_a_sealed_test_payload(tmp_path):
+    from scripts.compare_experiments_v2 import compare_candidates, load_candidates
+
+    path = tmp_path / "sealed.json"
+    path.write_text(json.dumps({"split": "test", "status": "completed", "id": "sealed"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="validation"):
+        load_candidates([path])
+    with pytest.raises(ValueError, match="validation"):
+        compare_candidates([{"split": "test", "status": "completed", "id": "sealed"}], "e2")
+
+
 def test_loaded_policy_must_be_the_e2_lora_without_a_ref_adapter():
+    from actproto.training import grpo_run
     from actproto.training.grpo_run import assert_loaded_e2_policy
 
     class Target:
         target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
+    class Flag:
+        def __init__(self, requires_grad):
+            self.requires_grad = requires_grad
+
+    def model(peft_config):
+        return SimpleNamespace(
+            peft_config=peft_config,
+            named_parameters=lambda: [("base.weight", Flag(False)), ("lora_A.default", Flag(True))],
+        )
+
     config = load_grpo_config(E2_CONFIG)
-    assert_loaded_e2_policy(SimpleNamespace(peft_config={"default": Target()}), config)
+    assert_loaded_e2_policy(model({"default": Target()}), config)
     with pytest.raises(GrpoConfigError, match="ref adapter"):
-        assert_loaded_e2_policy(SimpleNamespace(peft_config={"default": Target(), "ref": Target()}), config)
+        assert_loaded_e2_policy(model({"default": Target(), "ref": Target()}), config)
     with pytest.raises(GrpoConfigError, match="existing adapter"):
-        assert_loaded_e2_policy(SimpleNamespace(peft_config={}), config)
+        assert_loaded_e2_policy(model({}), config)
     other = config.__class__(**{**config.__dict__, "learning_rate": 2e-4})
     with pytest.raises(GrpoConfigError, match="5e-6"):
-        assert_loaded_e2_policy(SimpleNamespace(peft_config={"default": Target()}), other)
+        assert_loaded_e2_policy(model({"default": Target()}), other)
+    full = model({"default": Target()})
+    full.named_parameters = lambda: [("base.weight", Flag(True))]
+    with pytest.raises(GrpoConfigError, match="LoRA matrices"):
+        assert_loaded_e2_policy(full, config)
+    source = inspect.getsource(grpo_run._train_tiny_aya)
+    assert "is_trainable=True" in source
+    assert "get_peft_model" not in source
+    assert "merge_and_unload" not in source
 
 
 def test_tied_pair_records_zero_variance_and_does_not_change_weights():

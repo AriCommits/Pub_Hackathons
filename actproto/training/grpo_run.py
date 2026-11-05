@@ -50,13 +50,13 @@ def run_collect_only(config: GrpoV2Config, project_root: Path) -> dict:
 
 PINNED_MODEL_ID = "CohereLabs/tiny-aya-global"
 PINNED_REVISION = "af89d219b53ed9b13b8a4645f9c8028973510324"
-E2_LORA_TARGETS = {"q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"}
-E2_LEARNING_RATE = 5.0e-6
 
 
 def assert_loaded_e2_policy(model, config) -> None:
     """The trainable policy is the frozen e2 LoRA. Beta 0 builds no reference."""
-    if config.reference_policy != "beta_zero" or float(config.beta) != 0.0 or float(config.learning_rate) != E2_LEARNING_RATE:
+    from actproto.training.rl_config import E2_LORA_TARGETS, TOOL_REWARD_LEARNING_RATE
+
+    if config.reference_policy != "beta_zero" or float(config.beta) != 0.0 or float(config.learning_rate) != TOOL_REWARD_LEARNING_RATE:
         raise GrpoConfigError("the tool-reward run keeps the e2 LoRA, learning rate 5e-6, and beta 0")
     peft_config = getattr(model, "peft_config", None)
     if not isinstance(peft_config, dict) or "default" not in peft_config:
@@ -64,8 +64,11 @@ def assert_loaded_e2_policy(model, config) -> None:
     if "ref" in peft_config:
         raise GrpoConfigError("beta 0 must not add a ref adapter; TRL 1.7.1 would KL-regularize toward the base model")
     targets = set(getattr(peft_config["default"], "target_modules", ()))
-    if targets != E2_LORA_TARGETS:
+    if targets != set(E2_LORA_TARGETS):
         raise GrpoConfigError("trainable LoRA targets do not match the frozen e2 adapter")
+    trainable = [name for name, parameter in model.named_parameters() if parameter.requires_grad]
+    if not trainable or any("lora_" not in name for name in trainable):
+        raise GrpoConfigError("only the loaded LoRA matrices are trainable")
 
 
 def run_train(
@@ -143,25 +146,6 @@ def _train_payload(*, global_step: int, baseline_loaded: bool, reference_model_b
 
 HISTORICAL_RUNS = {"grpo_gpu_e2", "grpo_gpu_smoke", "grpo_cpu_smoke"}
 TRAIN_EPISODE_DEADLINE_SECONDS = 120.0
-
-
-def assert_loaded_e2_policy(model, config) -> None:
-    """Train the frozen e2 LoRA only. Beta 0 must not add a base-model reference adapter."""
-    from actproto.training.rl_config import E2_LORA_TARGETS, TOOL_REWARD_LEARNING_RATE
-
-    if config.reference_policy != "beta_zero" or float(config.beta) != 0.0:
-        raise GrpoConfigError("beta_zero training must not build a reference model")
-    if float(config.learning_rate) != TOOL_REWARD_LEARNING_RATE:
-        raise GrpoConfigError("the tool-reward learning rate stays 5.0e-6")
-    peft_config = getattr(model, "peft_config", None)
-    if not isinstance(peft_config, dict) or "ref" in peft_config or set(peft_config) != {"default"}:
-        raise GrpoConfigError("training must keep the loaded e2 adapter and must not add a ref adapter")
-    targets = set(getattr(peft_config["default"], "target_modules", ()))
-    if targets != set(E2_LORA_TARGETS):
-        raise GrpoConfigError("trainable LoRA targets do not match the frozen e2 adapter")
-    trainable = [name for name, parameter in model.named_parameters() if parameter.requires_grad]
-    if not trainable or any("lora_" not in name for name in trainable):
-        raise GrpoConfigError("only the loaded LoRA matrices are trainable")
 
 
 def refuse_historical_output(output_dir: Path) -> None:
@@ -406,7 +390,6 @@ def _train_tiny_aya(
         model = model.to(device)
         for name, parameter in model.named_parameters():
             parameter.requires_grad = "lora_" in name
-        assert_loaded_e2_policy(model, config)
         baseline_loaded = True
     except RuntimeError as exc:
         if _is_cuda_oom(exc):

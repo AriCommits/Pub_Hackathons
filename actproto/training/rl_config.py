@@ -16,6 +16,10 @@ class GrpoConfigError(ValueError):
 GRPO_GPU_PROFILE = "grpo_v2_gpu"
 RTX_5060_TI_UUID = "134c34ef-c155-b001-4e3a-b9134b072c21"
 RTX_4060_UUID = "5b885e12-623f-268c-f07c-ee33db379969"
+TOOL_REWARD_LEARNING_RATE = 5e-6
+E2_LORA_TARGETS = frozenset({
+    "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
+})
 
 
 _CPU_REQUIRED = {

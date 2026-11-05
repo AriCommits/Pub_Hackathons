@@ -161,7 +161,7 @@ def test_config_rejects_a_group_that_does_not_divide_the_batch(tmp_path):
 TOOLS_CONFIG = Path("actproto/configs/grpo_v2_gpu_tools.yaml")
 
 
-def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch):
+def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch, tmp_path):
     from actproto.training.rl_config import guard_tool_sampling
 
     config = load_grpo_config(TOOLS_CONFIG)
@@ -183,6 +183,14 @@ def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch):
     hotter = config.__class__(**{**config.__dict__, "temperature": 1.2})
     with pytest.raises(GrpoConfigError, match="temperature 0.8"):
         guard_tool_sampling(hotter)
+    raw = yaml.safe_load(TOOLS_CONFIG.read_text(encoding="utf-8"))
+    raw["beta"] = 0.001
+    with pytest.raises(GrpoConfigError, match="beta"):
+        load_grpo_config(_dump(tmp_path, raw))
+    raw["beta"] = 0.0
+    raw["reference_policy"] = "sft_kl"
+    with pytest.raises(GrpoConfigError, match="reference_policy"):
+        load_grpo_config(_dump(tmp_path, raw))
 
 
 def test_output_must_stay_inside_the_rl_results_directory(tmp_path):

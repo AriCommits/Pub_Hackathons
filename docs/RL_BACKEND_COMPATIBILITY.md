@@ -30,12 +30,18 @@ The CUDA fixture command is `scripts/train_grpo.py --smoke --live-gpu` with `act
 
 Tiny Aya GRPO, a frozen SFT reference, vLLM, and Plan 10 R4–R7 remain unverified. The SFT training footprint is not the GRPO measurement.
 
-## Tool-reward policy and beta
-
-The live tool-reward run loads the frozen e2 adapter at `results/sft_v2/e2/checkpoint-150` with `PeftModel.from_pretrained(..., is_trainable=True)`. It does not build a new LoRA on the base model and it does not merge the adapter into the base weights. Trainable weights are the existing `lora_` matrices on `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj`. The learning rate stays `5.0e-6`.
-
-Beta stays `0.0`. In TRL 1.7.1, a nonzero beta with a PEFT model and no adapter named `ref` disables the adapter for the reference forward, so the reference would be the base Tiny Aya model rather than e2. A second full reference model does not fit beside rollouts in 16 GB. This run does not create an adapter named `ref`. Beta stays 0 so a nonzero gradient can be attributed to the tool reward rather than to a KL term. The trainer still raises if `ref_model` is not `None`. The masked child refuses the RTX 4060 UUID `5b885e12-623f-268c-f07c-ee33db379969`, and the parent shell must not keep `CUDA_VISIBLE_DEVICES`.
-
 ## Beta stays 0 for the tool-reward run
 
 TRL 1.7.1 with a PEFT model and beta other than 0 looks for an adapter named `ref`. If that adapter is missing, the KL forward disables the adapter and uses the base Tiny Aya weights. That is not the frozen e2 policy. A second full reference model does not fit beside the rollouts in 16 GB. This plan does not create a `ref` adapter. Beta stays `0.0`, `reference_policy` stays `beta_zero`, and `reference_model_built` stays false, so a later nonzero gradient can be attributed to the tool reward rather than to a KL term. The trainable matrices are the e2 LoRA targets `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj` at rank 16 and alpha 32. The learning rate stays `5.0e-6`. The run still refuses to start outside the masked child and still refuses the RTX 4060 UUID `5b885e12-623f-268c-f07c-ee33db379969`.
+
+## Val comparison before any improvement claim
+
+`results/rl_v2/grpo_gpu_e2` is a negative control, not training progress. Its logged reward was 0, reward_std was 0, and grad_norm was 0. `checkpoint-20` sha256 is `2da2899c0fd2f5ca0bffc32c2e9201e0b7bab8b1758d2fde429ff19cf50be8bd`, the same digest as `results/sft_v2/e2/checkpoint-150`.
+
+After a tool-reward run records at least one optimizer step, score the new checkpoint on the val split only. Router stays off and sampling stays off (`actproto/configs/sft_matrix.yaml`, `--mode primary`). Do not pass `--final-eval` or `--split test`. The parent shell does not keep `CUDA_VISIBLE_DEVICES`. The eval is a model-bearing job and waits until training has released the 5060 Ti.
+
+```text
+python scripts/run_experiment_v2.py --manifest data/benchmarks/tooluse_v2/manifest.json --split val --run-id <new-run> --matrix actproto/configs/sft_matrix.yaml --adapter results/rl_v2/grpo_gpu_tools/checkpoint-<step> --mode primary --device-uuid 134c34ef-c155-b001-4e3a-b9134b072c21
+```
+
+`scripts/compare_experiments_v2.py` compares those val payloads through `load_candidates` and `compare_candidates`. It accepts val only. The e2 baseline path is `results/sft_v2/e2/checkpoint-150`. A gain below 0.05, a failed run, or a checkpoint whose weights match e2 is a negative result. No measured tool-reward comparison has been recorded yet.

@@ -525,3 +525,77 @@ class TrustedRolloutAdapter:
                     raise
                 return output
         return _TrustedAdapter()
+
+
+def collect_scored_fixture_episode(task: TaskSpec, *, environment_factory: Callable,
+                                   reward_version: str = 'verified_success_v2', **kwargs):
+    """Collect and score one fixture episode from the same live tool session.
+
+    This API is deliberately fixture-only. Its returned ledger is a live local
+    value, not proof that an arbitrary persisted JSON record is trustworthy.
+    """
+    from actproto.agent.harness import ToolResult
+    from actproto.evaluation.verification_v2 import verify
+    from actproto.training.rewards_v2 import TrustedRewardSession
+
+    if kwargs.get('fixture_only') is not True or kwargs.get('allow_unscoped_fixture', False):
+        raise ValueError('scored collection requires scoped fixtures and fixture_only=True')
+    if 'session' in kwargs:
+        raise ValueError('caller-supplied sessions are not permitted')
+    task = deepcopy(task)
+    tool_session = new_session(task, environment_factory, allow_unscoped_fixture=False)
+
+    class _Harness:
+        @property
+        def final_state(self):
+            return tool_session.state
+
+        def execute(self, name, arguments):
+            output = tool_session.call(name, arguments)
+            return ToolResult(name, deepcopy(arguments), output)
+
+    reward = TrustedRewardSession(task, _Harness())
+
+    class _CollectorSession:
+        @property
+        def task(self):
+            return tool_session.task
+
+        @property
+        def unscoped_fixture(self):
+            return tool_session.unscoped_fixture
+
+        @property
+        def state(self):
+            return tool_session.state
+
+        @property
+        def events(self):
+            return tool_session.events
+
+        def call(self, name, arguments):
+            # TrustedRewardSession calls _Harness.execute, which invokes the
+            # same ToolSession exactly once and records the identical event.
+            return reward.execute(name, arguments)
+
+    row = collect_episode(task, environment_factory=environment_factory,
+                          session=_CollectorSession(), **kwargs)
+    # The recorder may not be supplied from outside the collector. Reject any
+    # divergence between its directly captured calls and the reward capture.
+    calls = [event for event in tool_session.events if event.get('kind') == 'tool_call']
+    if calls != reward.captured_tool_events():
+        raise ValueError('live reward capture does not match the tool session')
+    for event in tool_session.events:
+        if event.get('kind') != 'tool_call':
+            reward.invalid_attempt(str(event.get('kind', 'invalid event')))
+    ledger = reward.score(completion_reason=row['completion_reason'], version=reward_version)
+    live_trace = ExecutionTrace(task.task_id, deepcopy(tool_session.events), row['completion_reason'], 'harness',
+        final_answer=tool_session.state.get('answer'), final_state=deepcopy(tool_session.state))
+    verdict = verify(task, live_trace)
+    if (ledger.verified_success != verdict.verified_success_v2 or
+            ledger.answer_success != verdict.answer_success or
+            ledger.execution_compliance != verdict.execution_compliance):
+        raise ValueError('live reward and collector verification disagree')
+    if row['trace']['events'] != live_trace.events or row['trace']['final_state'] != live_trace.final_state:
+        raise ValueError('collector record does not match live execution')
+    return row, ledger

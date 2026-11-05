@@ -76,6 +76,10 @@ class TrustedRewardSession:
         self._expected_state = deepcopy(event['state_after'])
         return deepcopy(event['output'])
 
+    def captured_tool_events(self) -> list[dict[str, Any]]:
+        """Return copies of tool events captured by this live session."""
+        return deepcopy([event for event in self._events if event.get('kind') == 'tool_call'])
+
     def invalid_attempt(self, reason: str = 'invalid output') -> None:
         if self._finished:
             raise ValueError('session is finalized')

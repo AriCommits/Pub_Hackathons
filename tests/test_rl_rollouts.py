@@ -477,3 +477,105 @@ def test_crash_after_prepare_reserves_and_resolves_all_empty_groups(tmp_path):
     assert all(row['reason'] == 'batch_not_ready' for row in resolved)
     resumed(['calculate','calculate'], trainer)
     assert [row['group_index'] for row in read_rollouts(records).values()] == [2, 2]
+
+
+def test_live_scoped_reward_handoff_executes_each_tool_once(tmp_path, monkeypatch):
+    from actproto.data.benchmark_v2 import _make_example
+    from actproto.data.fixtures_v2 import build_environment
+    from actproto.evaluation.experiment_runner import ScopedFixtureView
+    from actproto.experiments.manifest import hash_file
+    from actproto.training.rl_dataset import load_scoped_train_manifest
+    from actproto.training.rl_rollouts import collect_scored_fixture_episode
+
+    env = build_environment(2)
+    fixture = {'identifier': env.identifier, 'records': env.records, 'sales': env.sales, 'documents': env.documents}
+    (tmp_path / 'fixtures.json').write_text(json.dumps(fixture), encoding='utf8')
+    item = _make_example(0, 'train', 'single_tool', env, env.digest)
+    item['task']['oracle'] = {'answer': '2'}
+    item['task']['mode'] = 'required_tools'
+    item['task']['tool_dependencies'] = [{'id': 'calc', 'tool': 'calculator', 'arguments': {'expression': '1+1'}}]
+    (tmp_path / 'train.jsonl').write_text(json.dumps(item) + '\n', encoding='utf8')
+    manifest = {'schema_version': 'tooluse_v2', 'environment_id': env.identifier, 'fixture_hash': env.digest,
+                'files': {name: hash_file(tmp_path / name) for name in ('fixtures.json', 'train.jsonl')}}
+    (tmp_path / 'manifest.json').write_text(json.dumps(manifest), encoding='utf8')
+    scoped, tasks = load_scoped_train_manifest(tmp_path / 'manifest.json')
+    invocations, policy_prompts = [], []
+    real_call = ScopedFixtureView.call
+    def counted(self, environment_id, name, arguments):
+        invocations.append(name)
+        return real_call(self, environment_id, name, arguments)
+    monkeypatch.setattr(ScopedFixtureView, 'call', counted)
+    def factory(seed):
+        def policy(ids, budget):
+            prompt = ''.join(map(chr, ids))
+            policy_prompts.append(prompt)
+            action = (call('finish', {'answer': '2'}) if 'Tool result:' in prompt else
+                      call('calculator', {'expression': '1+1'}))
+            return generated(action)
+        return policy
+    row, ledger = collect_scored_fixture_episode(tasks[0], run_id='run', group_index=0, sample_index=0,
+        seed=42, policy_hash='a'*64, tokenizer=CharacterTokenizer(), policy_factory=factory,
+        environment_factory=lambda: scoped, fixture_only=True)
+    assert invocations == ['calculator', 'finish']
+    assert [event['tool'] for event in row['trace']['events']] == invocations
+    assert ledger.reward == 1 and ledger.task_id == row['task_id']
+    assert all(tasks[0].task_id not in prompt for prompt in policy_prompts)
+    assert all('"answer": "2"' not in prompt for prompt in policy_prompts)
+    # A serialized record is ordinary data; changing it cannot change the live ledger.
+    row['trace']['events'].clear()
+    assert ledger.reward == 1
+
+    def bad_factory(seed):
+        return lambda ids, budget: generated('{not valid json')
+    invalid, rejected = collect_scored_fixture_episode(tasks[0], run_id='run', group_index=0, sample_index=1,
+        seed=42, policy_hash='a'*64, tokenizer=CharacterTokenizer(), policy_factory=bad_factory,
+        environment_factory=lambda: scoped, fixture_only=True)
+    assert invalid['completion_reason'] == 'parse_error'
+    assert rejected.reward == 0 and rejected.invalid_attempts == 1
+    assert invocations == ['calculator', 'finish']
+
+    import actproto.training.rl_rollouts as rollout_module
+    real_collect = rollout_module.collect_episode
+    def corrupt_record(*args, **kwargs):
+        forged = real_collect(*args, **kwargs)
+        forged['trace']['events'][0]['output'] = {'ok': True, 'data': {'answer': 'forged'}}
+        return forged
+    monkeypatch.setattr(rollout_module, 'collect_episode', corrupt_record)
+    with pytest.raises(ValueError, match='does not match live execution'):
+        collect_scored_fixture_episode(tasks[0], run_id='run', group_index=1, sample_index=0,
+            seed=42, policy_hash='a'*64, tokenizer=CharacterTokenizer(), policy_factory=factory,
+            environment_factory=lambda: scoped, fixture_only=True)
+
+
+def test_scored_handoff_fails_closed_outside_scoped_fixture():
+    from actproto.training.rl_rollouts import collect_scored_fixture_episode
+    kwargs = options()
+    kwargs.update(sample_index=0, policy_factory=lambda seed: lambda ids, budget:
+                  generated(call('finish', {'answer': '1'})))
+    with pytest.raises(ValueError, match='scoped fixtures'):
+        collect_scored_fixture_episode(task(), **kwargs)
+    kwargs['allow_unscoped_fixture'] = False
+    kwargs['fixture_only'] = False
+    with pytest.raises(ValueError, match='scoped fixtures'):
+        collect_scored_fixture_episode(task(), **kwargs)
+
+
+def test_scored_handoff_rejects_externally_supplied_session():
+    from actproto.training.rl_rollouts import collect_scored_fixture_episode
+    kwargs = options()
+    kwargs.update(sample_index=0, policy_factory=lambda seed: lambda ids, budget:
+                  generated(call('finish', {'answer': '1'})), allow_unscoped_fixture=False, session=object())
+    with pytest.raises(ValueError, match='caller-supplied'):
+        collect_scored_fixture_episode(task(), **kwargs)
+
+
+def test_live_reward_tool_events_cannot_be_mutated_by_caller():
+    from actproto.agent.harness import DictToolHarness
+    from actproto.training.rewards_v2 import TrustedRewardSession
+    harness = DictToolHarness()
+    session = TrustedRewardSession(task(), harness)
+    session.execute('finish', {'answer': '1'})
+    events = session.captured_tool_events()
+    events[0]['arguments']['answer'] = 'tampered'
+    assert session.captured_tool_events()[0]['arguments']['answer'] == '1'
+    assert session.score(completion_reason='finish').reward == 1

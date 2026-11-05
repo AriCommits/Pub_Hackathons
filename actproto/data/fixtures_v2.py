@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
+import random
 from actproto.experiments.manifest import hash_object
 from actproto.tools.registry import call_tool
 from actproto.tools.schemas import validate_args
@@ -54,14 +55,23 @@ class FixtureEnvironment:
         return {"ok": False, "error": {"type": "unknown_tool", "message": f"unknown tool {name}"}}
 
 
-def build_environment(count=1800):
+def build_environment(count=1800, seed=42):
+    if not 0 <= count <= 1_000_000:
+        raise ValueError("fixture count outside identifier pool")
+    # Independent shuffled, disjoint pools prevent record, product, and document
+    # IDs from revealing one another; separate RNG streams decouple their values.
+    record_ids = random.Random(f"{seed}:record").sample(range(1_000_000, 2_000_000), count)
+    product_ids = random.Random(f"{seed}:product").sample(range(2_000_000, 3_000_000), count)
+    document_ids = random.Random(f"{seed}:document").sample(range(3_000_000, 4_000_000), count)
+    values = random.Random(f"{seed}:values")
     records, sales, documents = [], [], []
     for i in range(count):
-        product, record = f"item{i:04d}", f"V2-{i:04d}"
-        year, amount = 2015 + i % 12, 1000 + ((i * 137) % 9000)
-        region = ("north", "south", "west", "east")[i % 4]
+        product, record = f"item{product_ids[i]}", f"V2-{record_ids[i]}"
+        year, amount = values.randint(2010, 2025), values.randint(1000, 9999)
+        region = values.choice(("north", "south", "west", "east"))
+        days = values.randint(20, 90)
         records.append({"id": record, "product": product, "region": region, "year": year})
         sales.append({"product": product, "region": region, "year": year, "sales": amount})
-        documents.append({"id": f"doc-{i:04d}", "title": f"Guide {product}",
-                          "text": f"The service interval for {product} is {20 + i % 71} days."})
+        documents.append({"id": f"doc-{document_ids[i]}", "title": f"Guide {product}",
+                          "text": f"The service interval for {product} is {days} days."})
     return FixtureEnvironment(ENVIRONMENT_ID, tuple(records), tuple(sales), tuple(documents))

@@ -96,3 +96,87 @@ def test_generated_train_rows_pass_real_tokenizer_preflight(dataset, tmp_path):
     assert report["accepted_rows"] == len(samples)
     assert report["excluded_rows"] == 0
     assert all(any(label != -100 for label in item["labels"]) for item in encoded)
+
+
+def test_explicit_subset_exclusions_are_enforced(dataset):
+    from actproto.evaluation.verification_v2 import verify
+    from actproto.experiments.contracts import TaskSpec
+
+    env, examples, _, _ = dataset
+    args_by_tool = {"calculator": {"expression": "1 + 1"},
+                    "search_docs": {"query": "item0000"},
+                    "query_database": {"product": "item0000"}}
+    for forbidden in args_by_tool:
+        item = next(e for e in examples if forbidden in e["task"]["oracle"]["forbidden_tools"]
+                    and len(e["gold_calls"]) < e["task"]["call_budget"])
+        task = TaskSpec.from_dict(item["task"])
+        trace = replay_gold(item, env)
+        args = args_by_tool[forbidden]
+        trace.events.insert(-1, {"kind": "tool_call", "tool": forbidden, "arguments": args,
+                                 "output": env.call(env.identifier, forbidden, args),
+                                 "source": "harness", "state_before": {}, "state_after": {}})
+        result = verify(task, trace)
+        assert result.answer_success and not result.execution_compliance
+        assert "forbidden tool called" in result.reasons
+
+
+def test_outcome_tasks_allow_equivalent_query_and_no_tool_tasks_reject_tools(dataset):
+    from actproto.evaluation.verification_v2 import verify
+    from actproto.experiments.contracts import TaskSpec
+
+    env, examples, _, _ = dataset
+    item = next(e for e in examples if e["task"]["stratum"] == "single_tool"
+                and e["gold_calls"][0]["tool"] == "query_database")
+    task = TaskSpec.from_dict(item["task"])
+    trace = replay_gold(item, env)
+    event = trace.events[0]
+    args = {"product": event["arguments"]["product"]}
+    event["arguments"] = args
+    event["output"] = env.call(env.identifier, "query_database", args)
+    assert len(event["output"]["data"]["rows"]) == 1
+    assert task.mode == "outcome" and verify(task, trace).verified_success_v2
+
+    no_tool = next(e for e in examples if e["task"]["stratum"] == "recovery_no_tool"
+                   and len(e["gold_calls"]) == 1)
+    task = TaskSpec.from_dict(no_tool["task"])
+    trace = replay_gold(no_tool, env)
+    args = {"expression": "1 + 1"}
+    trace.events.insert(0, {"kind": "tool_call", "tool": "calculator", "arguments": args,
+                            "output": env.call(env.identifier, "calculator", args),
+                            "source": "harness", "state_before": {}, "state_after": {}})
+    result = verify(task, trace)
+    assert result.answer_success and not result.execution_compliance
+    assert "forbidden tool called" in result.reasons
+
+
+def test_fixture_identifiers_and_values_use_independent_seeded_pools(dataset):
+    from actproto.data.fixtures_v2 import build_environment
+
+    env, _, _, _ = dataset
+    other = build_environment(len(env.records), seed=43)
+    assert env.digest == build_environment(len(env.records), seed=42).digest
+    assert env.digest != other.digest
+    record_ids = [int(r["id"].removeprefix("V2-")) for r in env.records]
+    product_ids = [int(r["product"].removeprefix("item")) for r in env.records]
+    doc_ids = [int(d["id"].removeprefix("doc-")) for d in env.documents]
+    assert len(set(record_ids)) == len(set(product_ids)) == len(set(doc_ids)) == len(record_ids)
+    assert set(record_ids).isdisjoint(product_ids)
+    assert set(record_ids).isdisjoint(doc_ids)
+    assert set(product_ids).isdisjoint(doc_ids)
+    # An index or identifier must not yield the sales value by the former formula.
+    assert sum(row["sales"] == 1000 + ((i * 137) % 9000) for i, row in enumerate(env.sales)) < 5
+
+
+def test_explicit_order_cannot_be_reversed(dataset):
+    from actproto.evaluation.verification_v2 import verify
+    from actproto.experiments.contracts import TaskSpec
+
+    env, examples, _, _ = dataset
+    item = next(e for e in examples if e["task"]["stratum"] == "ordered_subset")
+    task = TaskSpec.from_dict(item["task"])
+    trace = replay_gold(item, env)
+    assert verify(task, trace).verified_success_v2
+    trace.events[0], trace.events[1] = trace.events[1], trace.events[0]
+    result = verify(task, trace)
+    assert not result.execution_compliance
+    assert "required calls or dependencies unsatisfied" in result.reasons

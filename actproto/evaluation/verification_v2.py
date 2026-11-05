@@ -7,7 +7,8 @@ alone cannot authenticate records submitted by a model or an external caller.
 
 A dependency has a unique id, tool, exact arguments, optional `after` IDs and
 optional `expected_error` type. Independent dependencies may occur in any order.
-Task oracles specify answer (or answers), and optionally final_state. Answer
+Task oracles specify answer (or answers), optionally final_state, and an optional
+list of forbidden_tools. Answer
 normalization is explicit: exact, strip, casefold, or numeric with an optional
 literal unit and absolute tolerance. No substring or implicit ID normalization.
 """
@@ -138,6 +139,11 @@ def verify(task: TaskSpec, trace: ExecutionTrace) -> VerificationResult:
             or trace.final_answer != answer or trace.final_state != previous_state
             or trace.final_state.get("answer") != answer or trace.final_state.get("done") is not True):
         reasons.append("inconsistent finish result")
+    forbidden_tools = task.oracle.get("forbidden_tools", [])
+    if not isinstance(forbidden_tools, list) or any(not isinstance(tool, str) for tool in forbidden_tools):
+        raise ValueError("forbidden_tools must be a list of tool names")
+    if any(event.get("tool") in forbidden_tools for event in calls):
+        reasons.append("forbidden tool called")
     dependencies = task.tool_dependencies if task.mode == "required_tools" else []
     matched = _match_dependencies(calls, dependencies)
     if matched is None:

@@ -83,7 +83,7 @@ def _make_example(i, axis, stratum, env, fixture_hash):
             answer = call("lookup_record", {"record_id": record}, ["d0"])["data"]["product"]
     else:
         if variant == 0:
-            prompt = f"The reference code is CODE-{i:04d}. Repeat the code exactly without looking anything up. {convention}"
+            prompt = f"The reference code is CODE-{i:04d}. Repeat the code exactly without using any tools. {convention}"
             answer = f"CODE-{i:04d}"
         else:
             missing = f"MISSING-{i:04d}"
@@ -108,7 +108,7 @@ def _make_example(i, axis, stratum, env, fixture_hash):
                        f"{convention} In order, query {year} sales for {product}, then fetch {record}; return its product. Omit search and calculator.")
             prompt = prompts[variant]
         elif variant == 0:
-            prompt = f"Transcribe CODE-{i:04d} exactly; no tools are needed. {convention}"
+            prompt = f"Transcribe CODE-{i:04d} exactly; do not use any tools. {convention}"
         else:
             prompt = (f"Try record MISSING-{i:04d}. On not found, retrieve {record}; provide the product. "
                       f"{convention}")
@@ -116,9 +116,19 @@ def _make_example(i, axis, stratum, env, fixture_hash):
         # The execution line remains last; put the output convention before it.
         prompt = f"Output convention: {convention}\nExecution: {prompt.replace(convention, '').strip()}"
     call_budget = 8 if len(calls) > 2 else 4
-    mode = "required_tools" if dependencies else "outcome"
+    # Explicitly ordered requests and failure-recovery instructions prescribe
+    # calls. Ordinary questions are scored on their outcome, allowing valid
+    # alternative tools, arguments, and arithmetic paths.
+    mode = "required_tools" if stratum in {"ordered_subset", "recovery_no_tool"} and dependencies else "outcome"
+    forbidden_tools = []
+    if stratum == "recovery_no_tool" and not dependencies:
+        forbidden_tools = ["calculator", "search_docs", "query_database", "lookup_record"]
+    if stratum == "ordered_subset":
+        forbidden_tools = (["search_docs"], ["query_database", "calculator"],
+                           ["search_docs", "calculator"])[variant]
     task = TaskSpec(f"v2-{i:04d}", f"group-{i:04d}", "train", prompt, mode,
-                    {"answer": answer}, dependencies, {"type": "exact"}, call_budget,
+                    {"answer": answer, "forbidden_tools": forbidden_tools}, dependencies,
+                    {"type": "exact"}, call_budget,
                     env.identifier, fixture_hash, stratum)
     calls.append({"tool": "finish", "arguments": {"answer": answer},
                   "output": env.call(env.identifier, "finish", {"answer": answer})})
@@ -153,7 +163,7 @@ def replay_gold(example, env):
 
 
 def build_benchmark(seed=42):
-    env = build_environment(sum(sum(q) for q in QUOTAS.values()))
+    env = build_environment(sum(sum(q) for q in QUOTAS.values()), seed=seed)
     fixture_hash = env.digest
     slots = [(axis, name) for axis, quota in QUOTAS.items()
              for name, n in zip(STRATA, quota) for _ in range(n)]

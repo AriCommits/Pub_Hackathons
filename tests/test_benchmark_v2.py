@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from actproto.agent.parse import parse_tool_call
 from actproto.data.benchmark_v2 import QUOTAS, STRATA, build_benchmark, replay_gold
 from actproto.data.curriculum_v2 import repair_mix, select_probe
 from actproto.data.splits_v2 import validate_splits
@@ -44,6 +45,7 @@ def test_training_public_data_and_repair_limits(dataset):
     sample = next(e for e in examples if e["axis"] == "train")
     row = training_row(sample)
     assert row["split"] == "train" and row["messages"][-1]["role"] == "assistant"
+    assert parse_tool_call(row["messages"][-1]["content"]).name == "finish"
     assert sample["task"]["task_id"] not in json.dumps(row)
     assert "oracle" not in json.dumps(row)
     train = [e for e in examples if e["axis"] == "train"]

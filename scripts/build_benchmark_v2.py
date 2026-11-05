@@ -5,13 +5,13 @@ from pathlib import Path
 
 from actproto.data.benchmark_v2 import build_benchmark
 from actproto.experiments.manifest import hash_file
+from actproto.training.sft_dataset import format_tool_call
 
 
 def training_row(item):
     messages = [{"role": "user", "content": item["task"]["prompt"]}]
     for call in item["gold_calls"]:
-        messages.append({"role": "assistant", "content": json.dumps(
-            {"tool": call["tool"], "arguments": call["arguments"]}, sort_keys=True)})
+        messages.append({"role": "assistant", "content": format_tool_call(call["tool"], call["arguments"])})
         if call["tool"] != "finish":
             messages.append({"role": "tool", "content": json.dumps(call["output"], sort_keys=True)})
     return {"split": "train", "messages": messages}

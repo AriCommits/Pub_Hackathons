@@ -618,6 +618,20 @@ def test_peft_sampler_logprobs_follow_returned_scores():
     assert text == "call"
     assert ids == [4]
     assert truncated is False
+
+    class EosModel(Model):
+        def generate(self, **kwargs):
+            sequences = torch.cat([kwargs["input_ids"], torch.tensor([[1]])], dim=-1)
+            scores = (torch.zeros(1, 6),)
+            scores[0][0, 1] = 1.5
+            return SimpleNamespace(sequences=sequences, scores=scores)
+
+    eos_text, eos_ids, eos_logprobs, eos_truncated = _sample_peft_action(
+        EosModel(), Tokenizer(), [3], temperature=1.0, top_p=1.0, max_new_tokens=4,
+    )
+    assert eos_ids == [1]
+    assert eos_text == Tokenizer().decode([1], skip_special_tokens=False)
+    assert eos_logprobs and eos_truncated is False
     expected = float(torch.log_softmax(torch.tensor([0.0, 0.0, 0.0, 0.0, 2.0, 0.0]), dim=-1)[4])
     assert logprobs == pytest.approx([expected])
     with pytest.raises(GrpoConfigError, match="max_new_tokens"):

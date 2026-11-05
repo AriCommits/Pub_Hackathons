@@ -624,6 +624,24 @@ def test_fake_model_observation_changes_the_next_prompt_and_builds_a_ledger():
     assert [event["tool"] for event in session.captured_tool_events()] == ["calculator", "finish"]
 
 
+def test_unparsed_sample_is_kept_as_an_invalid_attempt():
+    from actproto.training.rewards_v2 import SHAPED_VERSION
+    from actproto.training.rl_rollouts import run_trusted_behavior_episode
+    spec = task()
+    scope = _install_for_task(_BoundScope(spec))
+    episode = run_trusted_behavior_episode(
+        spec, tokenizer=CharacterTokenizer(),
+        policy=lambda ids, budget: PolicySample("not a call", [999], [-0.3], False),
+        environment_factory=lambda: scope, deadline_seconds=5,
+    )
+    assert episode.completion_reason == "template_mismatch"
+    assert 999 in episode.completion_ids
+    assert any(episode.env_mask)
+    ledger = episode.session.score(completion_reason=episode.completion_reason, version=SHAPED_VERSION)
+    assert ledger.verified_success is False
+    assert episode.session.captured_tool_events() == []
+
+
 def test_behavior_rollout_rejects_unscoped_json_and_caller_sessions():
     from actproto.training.rl_rollouts import TrustedRolloutAdapter, run_trusted_behavior_episode
     spec = task()

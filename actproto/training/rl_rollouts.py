@@ -414,6 +414,18 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
         generated_tokens += len(sample.token_ids)
         messages.append({"role": "assistant", "content": sample.text})
 
+    def _keep_raw(sample: PolicySample) -> None:
+        """Keep the sampled ids when the chat template cannot render them.
+
+        An end-of-sequence or unparsable sample is still a policy decision.
+        It is not executed and it is not a successful finish.
+        """
+        nonlocal token_ids, policy_mask, aligned, generated_tokens
+        token_ids.extend(sample.token_ids)
+        policy_mask.extend([1] * len(sample.token_ids))
+        aligned.extend(list(sample.logprobs))
+        generated_tokens += len(sample.token_ids)
+
     def _append_observation(output: dict) -> None:
         nonlocal token_ids, policy_mask, aligned
         messages.append({"role": "tool", "content": json.dumps(output, sort_keys=True)})
@@ -468,6 +480,7 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
             try:
                 _append_sample(sample, prompt_ids)
             except ValueError:
+                _keep_raw(sample)
                 reward.invalid_attempt("template_mismatch")
                 completion = "template_mismatch"
                 break
@@ -477,6 +490,7 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
         try:
             _append_sample(sample, prompt_ids)
         except ValueError:
+            _keep_raw(sample)
             reward.invalid_attempt("template_mismatch")
             completion = "template_mismatch"
             break

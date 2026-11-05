@@ -195,10 +195,17 @@ def _sample_peft_action(model, tokenizer, prompt_ids, *, temperature, top_p, max
         distribution = torch.log_softmax(scores[index][0].float(), dim=-1)
         logprobs.append(float(distribution[token_id]))
         kept.append(int(token_id))
+    if not kept and new_ids and scores:
+        token_id = int(new_ids[0])
+        distribution = torch.log_softmax(scores[0][0].float(), dim=-1)
+        value = float(distribution[token_id])
+        if value == value and abs(value) != float("inf"):
+            kept = [token_id]
+            logprobs = [value]
     if not kept or not all(value == value and abs(value) != float("inf") for value in logprobs):
         raise GrpoConfigError("policy sample produced no finite tokens")
-    text = tokenizer.decode(kept, skip_special_tokens=True)
-    return text, kept, logprobs, len(kept) >= max_new_tokens
+    text = tokenizer.decode(kept, skip_special_tokens=False if len(kept) == 1 and kept[0] == tokenizer.eos_token_id else True)
+    return text, kept, logprobs, len(kept) >= max_new_tokens and kept[-1] != tokenizer.eos_token_id
 
 
 def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):

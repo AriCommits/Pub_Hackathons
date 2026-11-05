@@ -431,6 +431,23 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
     assert "_study_rollout" not in grpo_run._gpu_attempt.__code__.co_names
 
 
+def test_loaded_policy_must_be_the_e2_lora_without_a_ref_adapter():
+    from actproto.training.grpo_run import assert_loaded_e2_policy
+
+    class Target:
+        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+    config = load_grpo_config(E2_CONFIG)
+    assert_loaded_e2_policy(SimpleNamespace(peft_config={"default": Target()}), config)
+    with pytest.raises(GrpoConfigError, match="ref adapter"):
+        assert_loaded_e2_policy(SimpleNamespace(peft_config={"default": Target(), "ref": Target()}), config)
+    with pytest.raises(GrpoConfigError, match="existing adapter"):
+        assert_loaded_e2_policy(SimpleNamespace(peft_config={}), config)
+    other = config.__class__(**{**config.__dict__, "learning_rate": 2e-4})
+    with pytest.raises(GrpoConfigError, match="5e-6"):
+        assert_loaded_e2_policy(SimpleNamespace(peft_config={"default": Target()}), other)
+
+
 def test_tied_pair_records_zero_variance_and_does_not_change_weights():
     from actproto.training import grpo_run
     from actproto.training.grpo_run import format_step_log, tied_step_leaves_weights

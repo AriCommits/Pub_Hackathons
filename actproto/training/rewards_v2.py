@@ -207,9 +207,17 @@ class TrustedRewardSession:
             value = float(success) - shaped_penalty(success, invalid, duplicates, excess)
         else:
             value = float(success)
-        return RewardLedger(self._task.task_id, version, value, success, verdict.answer_success,
-                            verdict.execution_compliance, invalid, duplicates, excess, omitted,
-                            tuple(verdict.reasons))
+        self._ledger = RewardLedger(self._task.task_id, version, value, success, verdict.answer_success,
+                                    verdict.execution_compliance, invalid, duplicates, excess, omitted,
+                                    tuple(verdict.reasons))
+        return self._ledger
+
+    def finalized_ledger(self) -> RewardLedger | None:
+        """Return the ledger from the one score call, if this session was already scored."""
+        ledger = getattr(self, "_ledger", None)
+        if self._finished and isinstance(ledger, RewardLedger):
+            return ledger
+        return None
 
 
 def score_executed_session(session: TrustedRewardSession, *, completion_reason: str) -> float:

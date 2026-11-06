@@ -525,6 +525,49 @@ def test_live_reward_scores_the_shaped_trace_and_ignores_finish_text():
     assert group_advantages([rewards[1], rewards[2]])[0] == [0.0, 0.0]
 
 
+def test_trainer_reward_uses_prefix_credit_and_ignores_finish_text_and_length():
+    from actproto.agent.harness import DictToolHarness
+    from actproto.training.grpo_run import _executed_trace_reward
+    from actproto.training.rewards_v2 import PREFIX_VERSION, SHAPED_VERSION, TrustedRewardSession, score_executed_session
+
+    spec = TaskSpec("t", "g", "train", "What is 2+2?", "required_tools", {"answer": "4"},
+                    [{"id": "calc", "tool": "calculator", "arguments": {"expression": "2+2"}}],
+                    {"type": "exact"}, 4, "env", "hash")
+
+    def partial(text):
+        session = TrustedRewardSession(spec, DictToolHarness())
+        session.execute("calculator", {"expression": "2+2"})
+        session.execute("finish", {"answer": "wrong"})
+        return _executed_trace_reward([text], [session], ["finish"])[0]
+
+    short = partial("finish")
+    long = partial("finish " * 80)
+    assert short == pytest.approx(0.30)
+    assert long == short
+    assert short > 0
+    shaped = TrustedRewardSession(spec, DictToolHarness())
+    shaped.execute("calculator", {"expression": "2+2"})
+    shaped.execute("finish", {"answer": "wrong"})
+    assert shaped.score(completion_reason="finish", version=SHAPED_VERSION).reward == 0
+    assert _executed_trace_reward(["finish the task without a session"]) == [0.0]
+    assert _executed_trace_reward(["finish"], [None], ["parse_error"]) == [0.0]
+
+    live = TrustedRewardSession(spec, DictToolHarness())
+    live.execute("calculator", {"expression": "2+2"})
+    live.execute("finish", {"answer": "4"})
+    first = live.score(completion_reason="finish", version=PREFIX_VERSION)
+    assert first.version == PREFIX_VERSION and first.reward == 1.0
+
+    def score_again(*args, **kwargs):
+        raise AssertionError("finalized session was scored a second time")
+
+    live.score = score_again
+    assert _executed_trace_reward(["x"], [live], ["finish"]) == [first.reward]
+    other = TrustedRewardSession(spec, DictToolHarness())
+    other.invalid_attempt("parse_error")
+    assert score_executed_session(other, completion_reason="parse_error") == pytest.approx(-0.10)
+
+
 def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeypatch):
     import json
 

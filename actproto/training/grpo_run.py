@@ -262,14 +262,15 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
 
 
 def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, group_size=2, **kwargs):
-    """Score captured tool sessions with ``bounded_shaped_v1``.
+    """Score captured tool sessions with ``bounded_prefix_v1``.
 
     A decoded completion that merely contains "finish" is not success. The
     completion text is ignored. Serialized rollout JSON is not evidence, and
-    no token-length bonus is added.
+    no token-length bonus is added. A session that already has a ledger is
+    read once and is not scored again.
     """
     del kwargs
-    from actproto.training.rewards_v2 import TrustedRewardSession, score_executed_session
+    from actproto.training.rewards_v2 import PREFIX_VERSION, TrustedRewardSession
 
     if not reward_sessions:
         rewards = [0.0 for _ in completions]
@@ -281,9 +282,16 @@ def _executed_trace_reward(completions, reward_sessions=None, completion_reasons
         raise GrpoConfigError("each executed trace needs one completion reason")
     rewards = []
     for session, reason in zip(reward_sessions, completion_reasons):
+        if session is None:
+            rewards.append(0.0)
+            continue
         if not isinstance(session, TrustedRewardSession):
             raise GrpoConfigError("training reward requires a live trusted session")
-        rewards.append(score_executed_session(session, completion_reason=str(reason)))
+        existing = session.finalized_ledger()
+        if existing is not None:
+            rewards.append(existing.reward)
+            continue
+        rewards.append(session.score(completion_reason=str(reason), version=PREFIX_VERSION).reward)
     _remember_step(rewards, group_size)
     return rewards
 

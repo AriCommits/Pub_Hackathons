@@ -162,6 +162,8 @@ TOOLS_CONFIG = Path("actproto/configs/grpo_v2_gpu_tools.yaml")
 
 
 def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch, tmp_path):
+    import inspect
+
     from actproto.training.rl_config import guard_tool_sampling
 
     config = load_grpo_config(TOOLS_CONFIG)
@@ -176,10 +178,12 @@ def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch, tmp_p
     assert config.reference_policy == "beta_zero"
     guard_tool_sampling(config)
     wider = config.__class__(**{**config.__dict__, "num_generations": 4})
-    with pytest.raises(GrpoConfigError, match="memory note"):
+    with pytest.raises(GrpoConfigError, match="advantage 0"):
         guard_tool_sampling(wider)
     monkeypatch.setenv("LEXSI_RL_GROUP4_FIT", "1")
-    guard_tool_sampling(wider)
+    with pytest.raises(GrpoConfigError, match="advantage 0"):
+        guard_tool_sampling(wider)
+    assert "os.environ" not in inspect.getsource(guard_tool_sampling)
     hotter = config.__class__(**{**config.__dict__, "temperature": 1.2})
     with pytest.raises(GrpoConfigError, match="temperature 0.8"):
         guard_tool_sampling(hotter)

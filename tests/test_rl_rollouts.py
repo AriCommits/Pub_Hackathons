@@ -752,6 +752,12 @@ def test_each_sampled_turn_gets_256_tokens_and_truncation_does_not_leave_zero():
     assert called == []
     assert overflow.completion_reason == "context_overflow"
     assert overflow.completion_ids == []
+    from actproto.training.rewards_v2 import PREFIX_VERSION, ledger_components
+    ledger = overflow.session.score(completion_reason=overflow.completion_reason, version=PREFIX_VERSION)
+    row = ledger_components(ledger, overflow.completion_reason)
+    assert row["completion_reason"] == "context_overflow"
+    assert row["completion_reason"] not in {"parse_error", "truncated"}
+    assert "oracle" not in row
 
 
 def test_live_reward_tool_events_cannot_be_mutated_by_caller():

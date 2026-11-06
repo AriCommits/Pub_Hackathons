@@ -220,6 +220,19 @@ class TrustedRewardSession:
         return None
 
 
+def ledger_components(ledger: RewardLedger, completion_reason: str) -> dict[str, Any]:
+    """Raw reward breakdown for one completion. This does not include the oracle."""
+    return {
+        "reward": ledger.reward,
+        "verified_success": ledger.verified_success,
+        "invalid_attempts": ledger.invalid_attempts,
+        "duplicate_calls": ledger.duplicate_calls,
+        "excess_calls": ledger.excess_calls,
+        "excess_omitted_reason": ledger.excess_omitted_reason,
+        "completion_reason": completion_reason,
+    }
+
+
 def score_executed_session(session: TrustedRewardSession, *, completion_reason: str) -> float:
     """Score one live session with the checked-in shaped verifier reward.
 

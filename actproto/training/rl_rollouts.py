@@ -542,12 +542,26 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
     return BehaviorEpisode(token_ids[:prompt_length], completion_ids, logprobs, mask, reward, completion)
 
 
+def _rewards_tied(rewards: list[float]) -> bool:
+    return len(rewards) >= 2 and all(item == rewards[0] for item in rewards)
+
+
+def _finalize_prefix(episode: BehaviorEpisode):
+    """Score a live episode once with prefix credit and return that ledger."""
+    from actproto.training.rewards_v2 import PREFIX_VERSION
+
+    existing = episode.session.finalized_ledger()
+    if existing is not None:
+        return existing
+    return episode.session.score(completion_reason=episode.completion_reason, version=PREFIX_VERSION)
+
+
 class BehaviorToolRollout(AgenticRolloutAdapter):
     """Trainer callback that samples a policy and executes train-task tools in-process."""
 
     def __init__(self, tokenizer, tasks, policy_factory, environment_factory, *, deadline_seconds,
                  max_generated_tokens=256, seed=42, run_id="grpo-tools", chat_template=None,
-                 context_limit_reader=None):
+                 context_limit_reader=None, group_size=2):
         if not _positive_deadline(deadline_seconds):
             raise ValueError("behavior collection requires a hard-deadline executor; only synthetic fixtures are supported")
         if not callable(policy_factory) or not callable(environment_factory):
@@ -566,8 +580,10 @@ class BehaviorToolRollout(AgenticRolloutAdapter):
         self.max_generated_tokens = max_generated_tokens
         self.chat_template = chat_template
         self.context_limit_reader = context_limit_reader
+        self.group_size = group_size
         self.seed = seed
         self.run_id = run_id
+        self.last_skipped = False
 
     @staticmethod
     def _refuse_smoke_policy(prompt_ids, trainer):
@@ -579,37 +595,67 @@ class BehaviorToolRollout(AgenticRolloutAdapter):
         del name, arguments
         raise RuntimeError("the study rollout does not use the smoke executor")
 
+    def _episode(self, prompt, index, trainer, draw):
+        text = _public_user_text(prompt)
+        task = self.tasks.get(text)
+        if task is None:
+            raise ValueError("public prompt does not match a train task")
+        encoded = json.dumps(prompt)
+        secret = json.dumps(task.oracle, sort_keys=True)
+        if secret and secret in encoded:
+            raise ValueError("training prompt leaked private oracle data")
+        local_seed = rollout_seed(self.run_id, task.task_id, draw, index, self.seed)
+        policy = self.policy_factory(local_seed, trainer)
+        limit = self.context_limit_reader(trainer) if self.context_limit_reader is not None else None
+        return run_trusted_behavior_episode(
+            task, tokenizer=self.tokenizer, policy=policy,
+            environment_factory=self.environment_factory,
+            deadline_seconds=self.deadline_seconds,
+            max_generated_tokens=self.max_generated_tokens,
+            chat_template=self.chat_template,
+            context_limit=limit,
+        )
+
     def __call__(self, prompts, trainer):
         if not isinstance(prompts, list) or not prompts:
             raise ValueError("trainer must provide a nonempty batch of public prompts")
+        group_size = self.group_size
+        grouped = group_size >= 2 and len(prompts) >= group_size and len(prompts) % group_size == 0
+        episodes = []
+        skipped = False
+        if grouped:
+            from actproto.training.rewards_v2 import ledger_components
+
+            for start in range(0, len(prompts), group_size):
+                chunk = prompts[start:start + group_size]
+                drawn = [self._episode(chunk[offset], start + offset, trainer, 0) for offset in range(group_size)]
+                rewards = [_finalize_prefix(episode).reward for episode in drawn]
+                if _rewards_tied(rewards):
+                    drawn = [self._episode(chunk[offset], start + offset, trainer, 1) for offset in range(group_size)]
+                    rewards = [_finalize_prefix(episode).reward for episode in drawn]
+                    if _rewards_tied(rewards):
+                        skipped = True
+                episodes.extend(drawn)
+            components = [
+                ledger_components(_finalize_prefix(episode), episode.completion_reason) for episode in episodes
+            ]
+        else:
+            components = None
+            for index, prompt in enumerate(prompts):
+                episodes.append(self._episode(prompt, index, trainer, 0))
+        self.last_skipped = skipped
         result = {key: [] for key in ("prompt_ids", "completion_ids", "logprobs", "env_mask",
                                        "reward_sessions", "completion_reasons")}
-        for index, prompt in enumerate(prompts):
-            text = _public_user_text(prompt)
-            task = self.tasks.get(text)
-            if task is None:
-                raise ValueError("public prompt does not match a train task")
-            encoded = json.dumps(prompt)
-            secret = json.dumps(task.oracle, sort_keys=True)
-            if secret and secret in encoded:
-                raise ValueError("training prompt leaked private oracle data")
-            local_seed = rollout_seed(self.run_id, task.task_id, 0, index, self.seed)
-            policy = self.policy_factory(local_seed, trainer)
-            limit = self.context_limit_reader(trainer) if self.context_limit_reader is not None else None
-            episode = run_trusted_behavior_episode(
-                task, tokenizer=self.tokenizer, policy=policy,
-                environment_factory=self.environment_factory,
-                deadline_seconds=self.deadline_seconds,
-                max_generated_tokens=self.max_generated_tokens,
-                chat_template=self.chat_template,
-                context_limit=limit,
-            )
+        for episode in episodes:
             result["prompt_ids"].append(episode.prompt_ids)
             result["completion_ids"].append(episode.completion_ids)
             result["logprobs"].append(episode.logprobs)
             result["env_mask"].append(episode.env_mask)
             result["reward_sessions"].append(episode.session)
             result["completion_reasons"].append(episode.completion_reason)
+        if components is not None:
+            result["reward_components"] = components
+            result["skipped_tied_batch"] = skipped
         return result
 
 

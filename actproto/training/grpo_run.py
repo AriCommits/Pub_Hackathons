@@ -236,10 +236,18 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
         return limit
 
     def policy_factory(local_seed, trainer):
-        del local_seed
         active = active_model(trainer)
+        seeded = False
 
         def policy(prompt_ids, remaining):
+            nonlocal seeded
+            if not seeded:
+                try:
+                    import torch
+                    torch.manual_seed(int(local_seed) % (2 ** 31))
+                except ImportError:
+                    pass
+                seeded = True
             # ``remaining`` is the per-turn cap from the episode, not a shrinking pool.
             text, token_ids, logprobs, truncated = _sample_peft_action(
                 active, tokenizer, prompt_ids,
@@ -258,10 +266,12 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
         run_id=run_id,
         chat_template=template,
         context_limit_reader=context_limit_reader,
+        group_size=config.num_generations,
     )
 
 
-def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, group_size=2, **kwargs):
+def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, group_size=2,
+                           skipped_tied_batch=False, **kwargs):
     """Score captured tool sessions with ``bounded_prefix_v1``.
 
     A decoded completion that merely contains "finish" is not success. The
@@ -270,29 +280,35 @@ def _executed_trace_reward(completions, reward_sessions=None, completion_reasons
     read once and is not scored again.
     """
     del kwargs
-    from actproto.training.rewards_v2 import PREFIX_VERSION, TrustedRewardSession
+    from actproto.training.rewards_v2 import PREFIX_VERSION, TrustedRewardSession, ledger_components
 
     if not reward_sessions:
         rewards = [0.0 for _ in completions]
-        _remember_step(rewards, group_size)
+        _remember_step(rewards, group_size, skipped_tied_batch=bool(skipped_tied_batch))
         return rewards
     if any(isinstance(session, (str, bytes, dict, list)) for session in reward_sessions):
         raise GrpoConfigError("serialized rollout JSON is not execution evidence")
     if completion_reasons is None or len(completion_reasons) != len(reward_sessions) or len(reward_sessions) != len(completions):
         raise GrpoConfigError("each executed trace needs one completion reason")
     rewards = []
+    rows = []
     for session, reason in zip(reward_sessions, completion_reasons):
         if session is None:
             rewards.append(0.0)
+            rows.append({
+                "reward": 0.0, "verified_success": False, "invalid_attempts": 0,
+                "duplicate_calls": 0, "excess_calls": None, "excess_omitted_reason": None,
+                "completion_reason": reason,
+            })
             continue
         if not isinstance(session, TrustedRewardSession):
             raise GrpoConfigError("training reward requires a live trusted session")
         existing = session.finalized_ledger()
-        if existing is not None:
-            rewards.append(existing.reward)
-            continue
-        rewards.append(session.score(completion_reason=str(reason), version=PREFIX_VERSION).reward)
-    _remember_step(rewards, group_size)
+        if existing is None:
+            existing = session.score(completion_reason=str(reason), version=PREFIX_VERSION)
+        rewards.append(existing.reward)
+        rows.append(ledger_components(existing, str(reason)))
+    _remember_step(rewards, group_size, completions=rows, skipped_tied_batch=bool(skipped_tied_batch))
     return rewards
 
 
@@ -325,6 +341,10 @@ def reward_step_record(rewards: list[float], group_size: int, grad_norm: float |
         "groups": len(groups),
         "advantages": advantages,
         "all_groups_tied": all_tied,
+        "completions": [],
+        "skipped_tied_batch": False,
+        "loss": None,
+        "frac_reward_zero_std": None,
     }
 
 
@@ -336,23 +356,80 @@ def tied_step_leaves_weights(weights: dict, rewards: list[float], group_size: in
     return dict(weights), record
 
 
-def _remember_step(rewards: list[float], group_size: int) -> None:
+def _remember_step(rewards: list[float], group_size: int, **extra) -> None:
     if group_size < 2 or len(rewards) < group_size or len(rewards) % group_size:
         return
+    record = reward_step_record(rewards, group_size)
+    record.update(extra)
+    if record.get("skipped_tied_batch"):
+        record["grad_norm"] = 0.0
     _LAST_STEP.clear()
-    _LAST_STEP.update(reward_step_record(rewards, group_size))
+    _LAST_STEP.update(record)
+
+
+def zero_tied_gradients(model) -> None:
+    """Drop a tied batch's gradients so the optimizer step cannot move the weights."""
+    if model is None:
+        return
+    for parameter in model.parameters():
+        grad = getattr(parameter, "grad", None)
+        if grad is not None:
+            grad.zero_()
+
+
+def frac_reward_zero_std(logs: dict | None, trainer=None):
+    """Prefer the trainer log, then ``trainer._metrics['train']``."""
+    if logs and "frac_reward_zero_std" in logs:
+        return logs["frac_reward_zero_std"]
+    metrics = getattr(trainer, "_metrics", None)
+    if not isinstance(metrics, dict):
+        return None
+    train = metrics.get("train", {})
+    if not isinstance(train, dict) or "frac_reward_zero_std" not in train:
+        return None
+    value = train["frac_reward_zero_std"]
+    if isinstance(value, list):
+        return value[-1] if value else None
+    return value
+
+
+def diagnostic_record(logs: dict | None, diagnostics: dict, trainer=None) -> dict:
+    """One step diagnostic. EOS clip fields stay labeled as the EOS-based clip."""
+    logs = dict(logs or {})
+    skipped = bool(diagnostics.get("skipped_tied_batch"))
+    grad_norm = 0.0 if skipped else logs.get("grad_norm", diagnostics.get("grad_norm"))
+    record = {
+        "reward_mean": logs.get("reward", diagnostics.get("reward_mean")),
+        "reward_std": logs.get("reward_std", diagnostics.get("reward_std")),
+        "grad_norm": grad_norm,
+        "zero_variance_groups": diagnostics.get("zero_variance_groups"),
+        "loss": logs.get("loss", diagnostics.get("loss")),
+        "frac_reward_zero_std": frac_reward_zero_std(logs, trainer),
+        "skipped_tied_batch": skipped,
+        "completions": list(diagnostics.get("completions") or []),
+    }
+    eos = {}
+    if "completions/clipped_ratio" in logs:
+        eos["completions/clipped_ratio"] = logs["completions/clipped_ratio"]
+    if "completions/mean_terminated_length" in logs:
+        eos["completions/mean_terminated_length"] = logs["completions/mean_terminated_length"]
+    if eos:
+        record["eos_based_clip"] = eos
+    return record
 
 
 def format_step_log(logs: dict, diagnostics: dict) -> str:
     """One step line: reward mean, reward std, gradient norm, and zero-variance groups."""
     reward_mean = logs.get("reward", diagnostics.get("reward_mean"))
     reward_std = logs.get("reward_std", diagnostics.get("reward_std"))
-    grad_norm = logs.get("grad_norm", diagnostics.get("grad_norm"))
+    grad_norm = 0.0 if diagnostics.get("skipped_tied_batch") else logs.get("grad_norm", diagnostics.get("grad_norm"))
     zero = diagnostics.get("zero_variance_groups", 0)
     groups = diagnostics.get("groups", 0)
     text = f"reward_mean={reward_mean} reward_std={reward_std} grad_norm={grad_norm} zero_variance_groups={zero}"
     if groups and zero == groups:
         text += " advantages=0 all_groups_tied=true"
+    if diagnostics.get("skipped_tied_batch"):
+        text += " skipped_tied_batch=true"
     return text
 
 
@@ -442,37 +519,47 @@ def _train_tiny_aya(
     print(f"train_rows={len(rows)} trainable_lora={len(trainable)}", flush=True)
 
     class StepLog(TrainerCallback):
+        def __init__(self):
+            self.trainer = None
+
+        def on_pre_optimizer_step(self, args, state, control, **kwargs):
+            del args, state, control
+            if _LAST_STEP.get("skipped_tied_batch"):
+                zero_tied_gradients(kwargs.get("model"))
+                _LAST_STEP["grad_norm"] = 0.0
+
         def on_log(self, args, state, control, logs=None, **kwargs):
             del args, control, kwargs
             if not logs:
                 return
             line = format_step_log(logs, _LAST_STEP)
             print(f"global_step={state.global_step} {line}", flush=True)
+            record = diagnostic_record(logs, _LAST_STEP, self.trainer)
+            record["global_step"] = state.global_step
+            record["line"] = line
             with (output_dir / "step_diagnostics.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({
-                    "global_step": state.global_step,
-                    "line": line,
-                    "reward_mean": _LAST_STEP.get("reward_mean"),
-                    "reward_std": _LAST_STEP.get("reward_std"),
-                    "grad_norm": logs.get("grad_norm", _LAST_STEP.get("grad_norm")),
-                    "zero_variance_groups": _LAST_STEP.get("zero_variance_groups"),
-                    "all_groups_tied": _LAST_STEP.get("all_groups_tied"),
-                }, sort_keys=True) + "\n")
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
 
     from actproto.training.rl_dataset import VerifiedTrainFixtures
 
     scope = VerifiedTrainFixtures(train_manifest)
     rollout = _study_rollout(model, tokenizer, tasks, scope, config, output_dir.name)
     torch.manual_seed(config.seed)
+    step_log = StepLog()
+
+    def reward_func(completions, **kwargs):
+        skipped = kwargs.pop("skipped_tied_batch", getattr(rollout, "last_skipped", False))
+        return _executed_trace_reward(
+            completions, group_size=config.num_generations, skipped_tied_batch=skipped, **kwargs,
+        )
+
     wrapper = create_trainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=lambda completions, **kwargs: _executed_trace_reward(
-            completions, group_size=config.num_generations, **kwargs,
-        ),
+        reward_funcs=reward_func,
         train_dataset=Dataset.from_list(rows),
         rollout_func=rollout,
-        callbacks=[StepLog()],
+        callbacks=[step_log],
         output_dir=str(output_dir),
         num_generations=config.num_generations,
         per_device_train_batch_size=config.per_device_train_batch_size,
@@ -501,6 +588,7 @@ def _train_tiny_aya(
     wrapper.setup_data()
     wrapper.setup_trainer()
     trainer = wrapper.trainer
+    step_log.trainer = trainer
     if trainer is None:
         raise GrpoConfigError("backend did not construct a trainer")
     reference_built = getattr(trainer, "ref_model", None) is not None or float(trainer.beta) != 0.0

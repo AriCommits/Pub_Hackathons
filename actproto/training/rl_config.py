@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import math
-import os
 
 import yaml
 
@@ -173,20 +172,17 @@ def load_grpo_config(path: str | Path) -> GrpoV2Config:
 
 
 def guard_tool_sampling(config: GrpoV2Config) -> None:
-    """Keep the first tool-reward run at the checked-in sampling settings.
+    """Keep tool-reward sampling at group size 2, temperature 0.8, and top-p 0.95.
 
-    ``num_generations`` 4 is allowed only after a measured fit on the 5060 Ti
-    sets ``LEXSI_RL_GROUP4_FIT``. A higher temperature is not a substitute.
+    A larger group of identical rewards is still advantage 0. ``LEXSI_RL_GROUP4_FIT``
+    is not consulted and is not set.
     """
     if config.temperature != 0.8 or config.top_p != 0.95:
         raise GrpoConfigError("the tool-reward run keeps temperature 0.8 and top_p 0.95")
-    if config.num_generations == 2:
-        return
-    if config.num_generations == 4 and os.environ.get("LEXSI_RL_GROUP4_FIT") == "1":
-        return
-    if config.num_generations == 4:
-        raise GrpoConfigError("num_generations 4 requires a 5060 Ti memory note")
-    raise GrpoConfigError("tool-reward num_generations must be 2 until a group-size fit says otherwise")
+    if config.num_generations != 2:
+        raise GrpoConfigError(
+            "num_generations must stay 2; a larger group of identical rewards is still advantage 0"
+        )
 
 
 def resolve_output(relative: str, root: Path) -> Path:

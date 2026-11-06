@@ -785,3 +785,182 @@ def test_study_rollout_returns_a_completion_longer_than_the_loss_denominator(mon
     assert _contains_ids(completion, list(map(ord, first)))
     assert _contains_ids(completion, list(map(ord, second)))
     assert "collect_episode" not in grpo_run._study_rollout.__code__.co_names
+
+
+def _prefix_scope(spec):
+    from actproto.training.rl_dataset import VerifiedTrainFixtures
+
+    class StatefulEnvironment:
+        identifier = spec.environment_id
+        digest = spec.fixture_hash
+        def call(self, environment_id, name, arguments):
+            if name == "calculator":
+                return {"ok": True, "data": {"value": 1}}
+            if name == "finish":
+                return {"ok": True, "data": {"answer": arguments["answer"], "done": True}}
+            return {"ok": False, "error": {"type": "not_found", "message": "missing"}}
+
+    scope = object.__new__(VerifiedTrainFixtures)
+    scope._tasks = {spec.task_id: spec}
+
+    def for_task(task):
+        if scope._tasks.get(task.task_id) != task:
+            raise ValueError("task is not the manifest-bound training task")
+        return StatefulEnvironment()
+
+    scope.for_task = for_task
+    return scope
+
+
+def test_tied_batch_redraws_once_and_a_second_tie_skips_without_moving_weights(tmp_path):
+    import json
+
+    from actproto.training.grpo_run import (
+        _LAST_STEP, _executed_trace_reward, diagnostic_record, tied_step_leaves_weights, zero_tied_gradients,
+    )
+    from actproto.training.rewards_v2 import group_advantages
+    from actproto.training.rl_rollouts import BehaviorToolRollout, PolicySample
+
+    deps = [
+        {"id": "a", "tool": "calculator", "arguments": {"expression": "1+1"}},
+        {"id": "b", "tool": "calculator", "arguments": {"expression": "2+2"}, "after": ["a"]},
+    ]
+    spec = TaskSpec("prefix-task", "g", "train", "chain the calculators", "required_tools",
+                    {"answer": "4", "secret": "hidden-oracle"}, deps, {"type": "exact"}, 4, "env", "hash")
+    scope = _prefix_scope(spec)
+    made = {"n": 0}
+
+    def varying_factory(seed, trainer):
+        del seed, trainer
+        episode_index = made["n"]
+        made["n"] += 1
+
+        def policy(ids, budget):
+            assert budget == 256
+            prompt = "".join(map(chr, ids))
+            if episode_index < 2:
+                return PolicySample("not a call", list(map(ord, "not a call")), [-0.2] * len("not a call"), False)
+            if episode_index == 2:
+                action = call_json("finish", {"answer": "no"}) if "Tool result:" in prompt else call_json(
+                    "calculator", {"expression": "1+1"})
+                return PolicySample(action, list(map(ord, action)), [-0.2] * len(action), False)
+            if "2+2" in prompt or prompt.count("Tool result:") >= 2:
+                action = call_json("finish", {"answer": "no"})
+            elif "Tool result:" in prompt:
+                action = call_json("calculator", {"expression": "2+2"})
+            else:
+                action = call_json("calculator", {"expression": "1+1"})
+            return PolicySample(action, list(map(ord, action)), [-0.2] * len(action), False)
+
+        return policy
+
+    rollout = BehaviorToolRollout(
+        _CharTokenizer(), [spec], varying_factory, lambda: scope,
+        deadline_seconds=5, max_generated_tokens=256, group_size=2,
+        context_limit_reader=lambda trainer: 8192,
+    )
+    varied = rollout([spec.prompt, spec.prompt], trainer=None)
+    assert varied["skipped_tied_batch"] is False
+    assert made["n"] == 4
+    rewards = _executed_trace_reward(
+        ["finish", "finish"], varied["reward_sessions"], varied["completion_reasons"],
+        skipped_tied_batch=varied["skipped_tied_batch"],
+    )
+    assert rewards[0] != rewards[1]
+    assert any(item != 0.0 for item in group_advantages(rewards)[0])
+    assert _LAST_STEP["skipped_tied_batch"] is False
+
+    made["n"] = 0
+
+    def always_tied(seed, trainer):
+        del seed, trainer
+        episode_index = made["n"]
+        made["n"] += 1
+
+        def policy(ids, budget):
+            assert budget == 256
+            if episode_index % 2 == 0:
+                text = "not a call"
+                return PolicySample(text, list(map(ord, text)), [-0.2] * len(text), False)
+            text = "z" * 256
+            return PolicySample(text, list(map(ord, text)), [-0.1] * 256, True)
+
+        return policy
+
+    tied = BehaviorToolRollout(
+        _CharTokenizer(), [spec], always_tied, lambda: scope,
+        deadline_seconds=5, max_generated_tokens=256, group_size=2,
+        context_limit_reader=lambda trainer: 8192,
+    )
+    stuck = tied([spec.prompt, spec.prompt], trainer=None)
+    assert stuck["skipped_tied_batch"] is True
+    assert made["n"] == 4
+    tied_rewards = _executed_trace_reward(
+        ["finish", "finish " * 30], stuck["reward_sessions"], stuck["completion_reasons"],
+        skipped_tied_batch=True,
+    )
+    assert tied_rewards == pytest.approx([-0.1, -0.1])
+    weights = {"lora_A": 0.25, "lora_B": -1.0}
+    unchanged, record = tied_step_leaves_weights(weights, tied_rewards, 2)
+    assert unchanged == weights
+    assert record["grad_norm"] == 0.0
+
+    class _Grad:
+        def __init__(self):
+            self.value = 3.0
+        def zero_(self):
+            self.value = 0.0
+
+    class _Parameter:
+        def __init__(self):
+            self.data = 0.25
+            self.grad = _Grad()
+
+    class _Model:
+        def __init__(self):
+            self.param = _Parameter()
+        def parameters(self):
+            yield self.param
+
+    model = _Model()
+    zero_tied_gradients(model)
+    assert model.param.data == 0.25
+    assert model.param.grad.value == 0.0
+    reasons = [row["completion_reason"] for row in stuck["reward_components"]]
+    assert reasons == ["parse_error", "truncated"]
+    for row in stuck["reward_components"]:
+        assert set(row) == {
+            "reward", "verified_success", "invalid_attempts", "duplicate_calls",
+            "excess_calls", "excess_omitted_reason", "completion_reason",
+        }
+    trainer = SimpleNamespace(_metrics={"train": {"frac_reward_zero_std": [1.0]}})
+    logged = diagnostic_record(
+        {"loss": 0.0, "completions/clipped_ratio": 1.0, "completions/mean_terminated_length": 0.0},
+        _LAST_STEP, trainer,
+    )
+    assert logged["skipped_tied_batch"] is True
+    assert logged["grad_norm"] == 0.0
+    assert logged["frac_reward_zero_std"] == 1.0
+    assert logged["eos_based_clip"]["completions/clipped_ratio"] == 1.0
+    assert "eos_based_clip" in logged
+    text = json.dumps(logged)
+    assert "oracle" not in text and "hidden-oracle" not in text
+    path = tmp_path / "step_diagnostics.jsonl"
+    path.write_text(text + "\n", encoding="utf-8")
+    assert "skipped_tied_batch" in path.read_text(encoding="utf-8")
+    from_log = diagnostic_record({"frac_reward_zero_std": 0.5, "loss": 1.0}, _LAST_STEP, trainer)
+    assert from_log["frac_reward_zero_std"] == 0.5
+
+
+class _CharTokenizer:
+    def apply_chat_template(self, messages, tokenize, add_generation_prompt, chat_template=None):
+        del tokenize, chat_template
+        text = "".join(f"<{message['role']}>{message['content']}</{message['role']}>" for message in messages)
+        if add_generation_prompt:
+            text += "<assistant>"
+        return list(map(ord, text))
+
+
+def call_json(name, arguments):
+    import json
+    return json.dumps({"name": name, "arguments": arguments}, separators=(",", ":"))

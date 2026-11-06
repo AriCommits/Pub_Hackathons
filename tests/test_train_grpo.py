@@ -964,6 +964,37 @@ class _CharTokenizer:
         return list(map(ord, text))
 
 
+def test_val_comparison_rejects_a_test_split_and_unit_tests_do_not_launch_the_smoke(tmp_path, monkeypatch):
+    import json
+
+    from scripts.compare_experiments_v2 import compare_candidates, load_candidates
+    import scripts.train_grpo as train_grpo
+
+    launched = []
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    monkeypatch.setattr(train_grpo, "main", lambda *args, **kwargs: launched.append(args))
+    payload = {"split": "test", "status": "completed", "id": "heldout",
+               "metrics": {"macro_verified_success_v2": 1.0}}
+    path = tmp_path / "heldout.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="validation"):
+        load_candidates([path])
+    with pytest.raises(ValueError, match="validation"):
+        compare_candidates([payload], "e2")
+    procedure = Path("docs/RL_BACKEND_COMPATIBILITY.md").read_text(encoding="utf-8")
+    assert "actproto/configs/grpo_v2_gpu_prefix.yaml" in procedure
+    assert "134c34ef-c155-b001-4e3a-b9134b072c21" in procedure
+    assert "5b885e12-623f-268c-f07c-ee33db379969" in procedure
+    assert "results/rl_v2/grpo_gpu_prefix" in procedure
+    assert "CUDA_VISIBLE_DEVICES" in procedure
+    assert "2da2899c0fd2f5ca0bffc32c2e9201e0b7bab8b1758d2fde429ff19cf50be8bd" in procedure
+    assert "results/rl_v2/grpo_gpu_tools_r2" in procedure
+    assert "--split val" in procedure
+    assert "--final-eval" in procedure
+    assert launched == []
+    assert os.environ.get("CUDA_VISIBLE_DEVICES") == visible
+
+
 def call_json(name, arguments):
     import json
     return json.dumps({"name": name, "arguments": arguments}, separators=(",", ":"))

@@ -654,6 +654,9 @@ def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeyp
         grpo_run.refuse_historical_output(Path("results/rl_v2/grpo_gpu_e2"))
     with pytest.raises(GrpoConfigError, match="new results"):
         grpo_run.refuse_historical_output(Path("results/rl_v2/grpo_gpu_smoke"))
+    for name in ("grpo_gpu_tools", "grpo_gpu_tools_r2"):
+        with pytest.raises(GrpoConfigError, match="new results"):
+            grpo_run.refuse_historical_output(Path("results/rl_v2") / name)
 
 
 def test_peft_sampler_logprobs_follow_returned_scores():

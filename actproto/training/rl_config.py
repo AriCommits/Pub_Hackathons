@@ -46,6 +46,7 @@ _SHARED_KEYS = {
     "beta", "learning_rate", "num_generations", "per_device_train_batch_size",
     "gradient_accumulation_steps", "max_completion_length", "temperature", "top_p",
     "max_steps", "seed", "output_dir", "baseline_manifest", "train_manifest",
+    "per_turn_new_tokens",
 }
 
 
@@ -72,6 +73,7 @@ class GrpoV2Config:
     gradient_checkpointing: bool = False
     device_name: str = ""
     device_uuid: str = ""
+    per_turn_new_tokens: int = 256
 
     @property
     def generation_batch_size(self) -> int:
@@ -104,6 +106,7 @@ class GrpoV2Config:
             "use_vllm": False,
             "quantization": None,
             "vllm": False,
+            "per_turn_new_tokens": self.per_turn_new_tokens,
         }
 
 
@@ -146,6 +149,13 @@ def load_grpo_config(path: str | Path) -> GrpoV2Config:
         raise GrpoConfigError("num_generations must be at least 2")
     if (batch * accumulation) % generations != 0:
         raise GrpoConfigError("per_device_train_batch_size * gradient_accumulation_steps must be divisible by num_generations")
+    per_turn = raw.get("per_turn_new_tokens", 256)
+    if isinstance(per_turn, bool) or type(per_turn) is not int or per_turn != 256:
+        raise GrpoConfigError("per_turn_new_tokens must be 256")
+    max_steps = _positive_int(raw.get("max_steps"), "max_steps")
+    output_dir = _relative_output(raw.get("output_dir"))
+    if Path(output_dir).name == "grpo_gpu_prefix" and max_steps > 20:
+        raise GrpoConfigError("grpo_gpu_prefix max_steps must be at most 20")
     return GrpoV2Config(
         reference_policy="beta_zero",
         beta=0.0,
@@ -156,9 +166,10 @@ def load_grpo_config(path: str | Path) -> GrpoV2Config:
         max_completion_length=_positive_int(raw.get("max_completion_length"), "max_completion_length"),
         temperature=temperature,
         top_p=top_p,
-        max_steps=_positive_int(raw.get("max_steps"), "max_steps"),
+        max_steps=max_steps,
         seed=_positive_int(raw.get("seed"), "seed"),
-        output_dir=_relative_output(raw.get("output_dir")),
+        output_dir=output_dir,
+        per_turn_new_tokens=per_turn,
         baseline_manifest=str(raw.get("baseline_manifest") or ""),
         train_manifest=str(raw.get("train_manifest") or ""),
         schema_version=schema,

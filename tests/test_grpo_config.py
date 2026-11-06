@@ -205,3 +205,40 @@ def test_output_must_stay_inside_the_rl_results_directory(tmp_path):
         resolve_output("results/adapters/b1", root)
     with pytest.raises(GrpoConfigError, match="results/rl_v2"):
         resolve_output("results/rl_v2/../adapters/b1", root)
+
+
+PREFIX_CONFIG = Path("actproto/configs/grpo_v2_gpu_prefix.yaml")
+
+
+def test_prefix_config_loads_only_the_new_directory_and_per_turn_256(tmp_path):
+    tools = yaml.safe_load(TOOLS_CONFIG.read_text(encoding="utf-8"))
+    assert tools["output_dir"] == "results/rl_v2/grpo_gpu_tools"
+    assert "per_turn_new_tokens" not in tools
+    config = load_grpo_config(PREFIX_CONFIG)
+    assert config.output_dir == "results/rl_v2/grpo_gpu_prefix"
+    assert config.per_turn_new_tokens == 256
+    assert config.max_completion_length == 256
+    assert config.beta == 0.0
+    assert config.num_generations == 2
+    assert config.learning_rate == 5.0e-6
+    assert config.temperature == 0.8
+    assert config.top_p == 0.95
+    assert config.max_steps <= 20
+    assert config.device_uuid == "134c34ef-c155-b001-4e3a-b9134b072c21"
+    assert config.public_dict()["use_vllm"] is False
+    raw = yaml.safe_load(PREFIX_CONFIG.read_text(encoding="utf-8"))
+    raw["per_turn_new_tokens"] = 128
+    with pytest.raises(GrpoConfigError, match="per_turn_new_tokens"):
+        load_grpo_config(_dump(tmp_path, raw))
+    raw["per_turn_new_tokens"] = 256
+    raw["beta"] = 0.04
+    with pytest.raises(GrpoConfigError, match="beta"):
+        load_grpo_config(_dump(tmp_path, raw))
+    raw["beta"] = 0.0
+    raw["device_uuid"] = RTX_4060_UUID
+    with pytest.raises(GrpoConfigError, match="4060"):
+        load_grpo_config(_dump(tmp_path, raw))
+    raw["device_uuid"] = "134c34ef-c155-b001-4e3a-b9134b072c21"
+    raw["max_steps"] = 21
+    with pytest.raises(GrpoConfigError, match="at most 20"):
+        load_grpo_config(_dump(tmp_path, raw))

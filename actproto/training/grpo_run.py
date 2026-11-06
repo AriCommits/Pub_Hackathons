@@ -144,7 +144,9 @@ def _train_payload(*, global_step: int, baseline_loaded: bool, reference_model_b
     }
 
 
-HISTORICAL_RUNS = {"grpo_gpu_e2", "grpo_gpu_smoke", "grpo_cpu_smoke"}
+HISTORICAL_RUNS = {
+    "grpo_gpu_e2", "grpo_gpu_smoke", "grpo_cpu_smoke", "grpo_gpu_tools", "grpo_gpu_tools_r2",
+}
 TRAIN_EPISODE_DEADLINE_SECONDS = 120.0
 
 
@@ -223,6 +225,8 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
 
     if config.max_completion_length > STUDY_TURN_NEW_TOKENS:
         raise GrpoConfigError("max_completion_length must stay at most 256")
+    if config.per_turn_new_tokens != STUDY_TURN_NEW_TOKENS:
+        raise GrpoConfigError("per_turn_new_tokens must be 256")
     template = selected_template(tokenizer, "default")
 
     def active_model(trainer):

@@ -20,6 +20,62 @@ from actproto.tools.schemas import validate_args
 
 SPARSE_VERSION = 'verified_success_v2'
 SHAPED_VERSION = 'bounded_shaped_v1'
+PREFIX_VERSION = 'bounded_prefix_v1'
+FAILURE_CEILING = 0.30
+PREFIX_STEP = 0.01
+_TERMINAL_TOOLS = frozenset({'finish', 'no_tool'})
+
+
+def shaped_penalty(success: bool, invalid: int, duplicates: int, excess: int | None) -> float:
+    """Shared shaped penalty. Excess stays success-conditioned and omitted when unset."""
+    penalty = .10 * min(invalid, 3) + .05 * min(duplicates, 3)
+    if success and excess is not None:
+        penalty += .05 * min(excess, 4)
+    return penalty
+
+
+def _ordered_dependency_matches(calls: list[dict], dependencies: list[dict]) -> tuple[set[int], set]:
+    """Greedy ordered walk. A dependency matches only after every parent in ``after``."""
+    matched_calls: set[int] = set()
+    completed: set = set()
+    for index, event in enumerate(calls):
+        for dependency in dependencies:
+            dep_id = dependency['id']
+            if (dep_id not in completed
+                    and all(parent in completed for parent in dependency.get('after', []))
+                    and _call_match(event, dependency)):
+                matched_calls.add(index)
+                completed.add(dep_id)
+                break
+    return matched_calls, completed
+
+
+def prefix_counts(calls: list[dict], dependencies: list[dict]) -> tuple[int, int]:
+    """Count work-tool dependencies matched by the ordered walker.
+
+    ``finish`` and ``no_tool`` do not add prefix credit. Unmatched calls,
+    repeats, and token length do not increase ``k``.
+    """
+    _, completed = _ordered_dependency_matches(calls, dependencies)
+    work = [dep for dep in dependencies if dep.get('tool') not in _TERMINAL_TOOLS]
+    matched = sum(dep.get('id') in completed for dep in work)
+    return matched, len(work)
+
+
+def bounded_prefix_reward(success: bool, invalid: int, duplicates: int, excess: int | None,
+                          k: int, n: int) -> float:
+    """Failure-only prefix credit. Every success stays strictly above every failure."""
+    if k < 0 or n < 0 or k > n:
+        raise ValueError('prefix counts are outside the declared dependencies')
+    penalty = shaped_penalty(success, invalid, duplicates, excess)
+    if success:
+        return 1.0 - penalty
+    if n == 0 or k == 0:
+        return -penalty
+    progress = FAILURE_CEILING * (k / n)
+    previous = FAILURE_CEILING * ((k - 1) / n)
+    floor = previous + PREFIX_STEP * (FAILURE_CEILING / n)
+    return min(progress, max(floor, progress - penalty))
 
 
 @dataclass(frozen=True)
@@ -52,14 +108,19 @@ class TrustedRewardSession:
         self._task = deepcopy(task)
         self._harness = harness
         self._events: list[dict[str, Any]] = []
+        self._owned_ids: set[int] = set()
         self._expected_state: dict[str, Any] = {}
         self._tampered = False
         self._finished = False
 
+    def _append_event(self, event: dict[str, Any]) -> None:
+        self._events.append(event)
+        self._owned_ids.add(id(event))
+
     def _state_tampered(self) -> bool:
         if self._harness.final_state != self._expected_state:
             if not self._tampered:
-                self._events.append({'kind': 'state_tampering'})
+                self._append_event({'kind': 'state_tampering'})
                 self._tampered = True
             return True
         return self._tampered
@@ -72,7 +133,7 @@ class TrustedRewardSession:
         if self._state_tampered():
             raise ValueError('harness state tampering detected')
         event = execute_event(self._harness, name, arguments)
-        self._events.append(event)
+        self._append_event(event)
         self._expected_state = deepcopy(event['state_after'])
         return deepcopy(event['output'])
 
@@ -83,15 +144,17 @@ class TrustedRewardSession:
     def invalid_attempt(self, reason: str = 'invalid output') -> None:
         if self._finished:
             raise ValueError('session is finalized')
-        self._events.append({'kind': 'parse_error', 'reason': str(reason)})
+        self._append_event({'kind': 'parse_error', 'reason': str(reason)})
 
     def score(self, *, completion_reason: str, version: str = SPARSE_VERSION) -> RewardLedger:
         if self._finished:
             raise ValueError('session is finalized')
-        if version not in (SPARSE_VERSION, SHAPED_VERSION):
+        if version not in (SPARSE_VERSION, SHAPED_VERSION, PREFIX_VERSION):
             raise ValueError('unsupported reward version')
-        self._finished = True
         self._state_tampered()
+        if any(id(event) not in self._owned_ids for event in self._events):
+            raise ValueError('forged event')
+        self._finished = True
         state = deepcopy(self._harness.final_state)
         if not isinstance(state, dict):
             state = {}  # tampering is recorded; verifier must still fail closed
@@ -105,16 +168,7 @@ class TrustedRewardSession:
             # A declared, correctly ordered expected error is recoverable even
             # when a later required call was never reached. Match each declared
             # dependency once; do not excuse repeated errors indefinitely.
-            matched = set()
-            completed_dependencies = set()
-            for index, event in enumerate(calls):
-                for dependency in dependencies:
-                    if (dependency['id'] not in completed_dependencies
-                            and all(parent in completed_dependencies for parent in dependency.get('after', []))
-                            and _call_match(event, dependency)):
-                        matched.add(index)
-                        completed_dependencies.add(dependency['id'])
-                        break
+            matched, _completed = _ordered_dependency_matches(calls, dependencies)
         invalid = sum(event.get('kind') != 'tool_call' for event in trace.events)
         forbidden = set(self._task.oracle.get('forbidden_tools', []))
         seen = set()
@@ -146,10 +200,13 @@ class TrustedRewardSession:
         else:
             excess, omitted = max(len(calls) - bound, 0), None
         success = verdict.verified_success_v2
-        value = float(success)
-        if version == SHAPED_VERSION:
-            value -= .10 * min(invalid, 3) + .05 * min(duplicates, 3)
-            value -= .05 * int(success) * min(excess or 0, 4)
+        if version == PREFIX_VERSION:
+            k, n = prefix_counts(calls, dependencies)
+            value = bounded_prefix_reward(success, invalid, duplicates, excess, k, n)
+        elif version == SHAPED_VERSION:
+            value = float(success) - shaped_penalty(success, invalid, duplicates, excess)
+        else:
+            value = float(success)
         return RewardLedger(self._task.task_id, version, value, success, verdict.answer_success,
                             verdict.execution_compliance, invalid, duplicates, excess, omitted,
                             tuple(verdict.reasons))

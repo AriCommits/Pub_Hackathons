@@ -533,8 +533,18 @@ def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeyp
     from actproto.training.rewards_v2 import SHAPED_VERSION
     from actproto.training.rl_dataset import VerifiedTrainFixtures
 
+    from actproto.training.sft_masks import _BRANCH
+
     class CharacterTokenizer:
-        def apply_chat_template(self, messages, tokenize, add_generation_prompt):
+        def __init__(self):
+            self.chat_template = {
+                "default": "DEFAULT-TEMPLATE\n" + _BRANCH,
+                "alternate": "ALTERNATE-TEMPLATE\n" + _BRANCH,
+            }
+            self.seen_templates = []
+
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt, chat_template=None):
+            self.seen_templates.append(chat_template)
             text = "".join(f"<{message['role']}>{message['content']}</{message['role']}>" for message in messages)
             if add_generation_prompt:
                 text += "<assistant>"
@@ -562,10 +572,14 @@ def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeyp
 
     scope.for_task = for_task
     seen = []
+    sampled_caps = []
+    tokenizer = CharacterTokenizer()
 
     def fake_sample(model, tokenizer, prompt_ids, **kwargs):
-        del tokenizer, kwargs
+        del tokenizer
         seen.append(model)
+        sampled_caps.append(kwargs.get("max_new_tokens"))
+        assert kwargs.get("temperature") == pytest.approx(0.8)
         text = "".join(map(chr, prompt_ids))
         action = {"name": "finish", "arguments": {"answer": "2"}} if "Tool result:" in text else {
             "name": "calculator", "arguments": {"expression": "1+1"},
@@ -574,12 +588,21 @@ def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeyp
         ids = list(map(ord, raw))
         return raw, ids, [-0.2] * len(ids), False
 
+    class PolicyModel:
+        def __init__(self):
+            self.config = SimpleNamespace(max_position_embeddings=8192)
+
+    trainer_policy = PolicyModel()
     monkeypatch.setattr(grpo_run, "_sample_peft_action", fake_sample)
     config = load_grpo_config(E2_CONFIG)
-    rollout = grpo_run._study_rollout("loaded-peft", CharacterTokenizer(), [spec], scope, config, "grpo_gpu_tools")
+    assert config.temperature == pytest.approx(0.8)
+    rollout = grpo_run._study_rollout("loaded-peft", tokenizer, [spec], scope, config, "grpo_gpu_tools")
     assert isinstance(rollout, AgenticRolloutAdapter)
-    result = rollout([[{"role": "user", "content": spec.prompt}]], trainer=SimpleNamespace(model="trainer-policy"))
-    assert seen == ["trainer-policy", "trainer-policy"]
+    result = rollout([[{"role": "user", "content": spec.prompt}]], trainer=SimpleNamespace(model=trainer_policy))
+    assert seen == [trainer_policy, trainer_policy]
+    assert sampled_caps == [256, 256]
+    assert tokenizer.seen_templates
+    assert set(tokenizer.seen_templates) == {tokenizer.chat_template["default"]}
     ledger = result["reward_sessions"][0].score(completion_reason=result["completion_reasons"][0], version=SHAPED_VERSION)
     assert result["completion_reasons"] == ["finish"]
     assert ledger.verified_success is True
@@ -636,3 +659,86 @@ def test_peft_sampler_logprobs_follow_returned_scores():
     assert logprobs == pytest.approx([expected])
     with pytest.raises(GrpoConfigError, match="max_new_tokens"):
         _sample_peft_action(Model(), Tokenizer(), [3], temperature=1.0, top_p=1.0, max_new_tokens=257)
+
+
+def _contains_ids(haystack, needle):
+    width = len(needle)
+    return any(haystack[index:index + width] == needle for index in range(len(haystack) - width + 1))
+
+
+def test_study_rollout_returns_a_completion_longer_than_the_loss_denominator(monkeypatch):
+    import json
+
+    from actproto.agent.inference_v2 import ModelPolicy
+    from actproto.training import grpo_run
+    from actproto.training.rl_dataset import VerifiedTrainFixtures
+    from actproto.training.sft_masks import _BRANCH
+
+    class CharacterTokenizer:
+        def __init__(self):
+            self.chat_template = {
+                "default": "DEFAULT-TEMPLATE\n" + _BRANCH,
+                "alternate": "ALTERNATE-TEMPLATE\n" + _BRANCH,
+            }
+
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt, chat_template=None):
+            assert chat_template == self.chat_template["default"]
+            text = "".join(f"<{message['role']}>{message['content']}</{message['role']}>" for message in messages)
+            if add_generation_prompt:
+                text += "<assistant>"
+            return list(map(ord, text))
+
+    class StatefulEnvironment:
+        identifier = "env"
+        digest = "hash"
+        def call(self, environment_id, name, arguments):
+            if name == "calculator":
+                return {"ok": True, "data": {"value": 1}}
+            if name == "finish":
+                return {"ok": True, "data": {"answer": arguments["answer"], "done": True}}
+            return {"ok": False, "error": {"type": "not_found", "message": "missing"}}
+
+    spec = TaskSpec("long", "g", "train", "Add the padded numbers", "outcome", {"answer": "1"}, [],
+                    {"type": "exact"}, 2, "env", "hash")
+    scope = object.__new__(VerifiedTrainFixtures)
+    scope._tasks = {spec.task_id: spec}
+
+    def for_task(task):
+        if scope._tasks.get(task.task_id) != task:
+            raise ValueError("task is not the manifest-bound training task")
+        return StatefulEnvironment()
+
+    scope.for_task = for_task
+    expression = "1+" + ("1" * 180)
+    first = json.dumps({"name": "calculator", "arguments": {"expression": expression}}, separators=(",", ":"))
+    second = json.dumps({"name": "finish", "arguments": {"answer": "1" + ("0" * 180)}}, separators=(",", ":"))
+    actions = iter((first, second))
+    caps = []
+
+    def fake_sample(model, tokenizer, prompt_ids, **kwargs):
+        del model, tokenizer, prompt_ids
+        caps.append(kwargs["max_new_tokens"])
+        raw = next(actions)
+        ids = list(map(ord, raw))
+        assert len(ids) <= 256
+        return raw, ids, [-0.2] * len(ids), False
+
+    monkeypatch.setattr(grpo_run, "_sample_peft_action", fake_sample)
+    config = load_grpo_config(E2_CONFIG)
+    assert config.max_completion_length == 256
+    tokenizer = CharacterTokenizer()
+    policy = ModelPolicy(SimpleNamespace(config=SimpleNamespace(max_position_embeddings=8192)), tokenizer)
+    assert policy.template == tokenizer.chat_template["default"]
+    assert policy.max_new_tokens == 256
+    rollout = grpo_run._study_rollout(
+        SimpleNamespace(config=SimpleNamespace(max_position_embeddings=8192)),
+        tokenizer, [spec], scope, config, "grpo_gpu_tools",
+    )
+    result = rollout([[{"role": "user", "content": spec.prompt}]], trainer=None)
+    completion = result["completion_ids"][0]
+    assert caps == [256, 256]
+    assert len(completion) > 256
+    assert len(completion) > config.max_completion_length
+    assert _contains_ids(completion, list(map(ord, first)))
+    assert _contains_ids(completion, list(map(ord, second)))
+    assert "collect_episode" not in grpo_run._study_rollout.__code__.co_names

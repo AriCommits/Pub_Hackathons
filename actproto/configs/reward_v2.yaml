@@ -11,3 +11,15 @@ optional_shaped:
   excess_weight: 0.05
   excess_cap: 4
   excess_success_conditioned: true
+optional_prefix:
+  version: bounded_prefix_v1
+  failure_ceiling: 0.30
+  prefix_step: 0.01
+  invalid_weight: 0.10
+  invalid_cap: 3
+  duplicate_weight: 0.05
+  duplicate_cap: 3
+  excess_weight: 0.05
+  excess_cap: 4
+  excess_success_conditioned: true
+  live_override: false

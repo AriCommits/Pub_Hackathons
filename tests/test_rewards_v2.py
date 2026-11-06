@@ -6,7 +6,10 @@ from actproto.agent.harness import DictToolHarness
 from actproto.evaluation.trace_adapter import build_trace, execute_event
 from actproto.evaluation.verification_v2 import verify
 from actproto.experiments.contracts import TaskSpec
-from actproto.training.rewards_v2 import (SHAPED_VERSION, SPARSE_VERSION, TrustedRewardSession, group_advantages)
+from actproto.training.rewards_v2 import (
+    FAILURE_CEILING, PREFIX_VERSION, SHAPED_VERSION, SPARSE_VERSION, TrustedRewardSession,
+    bounded_prefix_reward, group_advantages, score_executed_session,
+)
 
 
 def task(mode='required_tools', dependencies=None, answer='4', budget=20, oracle=None):
@@ -140,6 +143,64 @@ def test_shaped_session_wrapper_covers_success_invalid_duplicate_and_excess():
     assert group_advantages([clean_reward, clean_reward]) == ([0.0, 0.0], {'zero_variance_groups': 1, 'groups': 1})
     with pytest.raises(TypeError):
         score_executed_session({'reward': 1}, completion_reason='finish')
+
+
+def _chain(spec, calls, version):
+    return collect(spec, calls, version=version)
+
+
+def test_prefix_credit_stays_below_every_success_and_shaped_values_stay_put():
+    deps = [
+        {"id": "a", "tool": "calculator", "arguments": {"expression": "1+1"}},
+        {"id": "b", "tool": "calculator", "arguments": {"expression": "2+2"}, "after": ["a"]},
+        {"id": "c", "tool": "search_docs", "arguments": {"query": "q"}, "after": ["b"]},
+    ]
+    spec = task(dependencies=deps, answer="4")
+    wrong = ("finish", {"answer": "wrong"})
+    step_a = ("calculator", {"expression": "1+1"})
+    step_b = ("calculator", {"expression": "2+2"})
+    step_c = ("search_docs", {"query": "q"})
+    shaped_partial = _chain(spec, [step_a, wrong], SHAPED_VERSION)
+    assert shaped_partial.reward == 0
+    prefix_scores = [
+        _chain(spec, [wrong], PREFIX_VERSION).reward,
+        _chain(spec, [step_a, wrong], PREFIX_VERSION).reward,
+        _chain(spec, [step_a, step_b, wrong], PREFIX_VERSION).reward,
+        _chain(spec, [step_a, step_b, step_c, wrong], PREFIX_VERSION).reward,
+    ]
+    assert prefix_scores[0] <= 0
+    assert prefix_scores[0] < prefix_scores[1] < prefix_scores[2] < prefix_scores[3]
+    assert prefix_scores[3] == pytest.approx(FAILURE_CEILING)
+    assert prefix_scores[3] < 0.35
+    long_zero = _chain(spec, [("calculator", {"expression": f"{i}+9"}) for i in range(8)] + [wrong], PREFIX_VERSION)
+    assert long_zero.reward <= 0
+    unmet = _chain(spec, [step_b, step_c, wrong], PREFIX_VERSION)
+    assert unmet.reward <= 0
+    extra = _chain(spec, [step_a, ("calculator", {"expression": "9+9"}),
+                          ("calculator", {"expression": "8+8"}), wrong], PREFIX_VERSION)
+    progress = FAILURE_CEILING * (1 / 3)
+    assert extra.reward <= progress
+    assert bounded_prefix_reward(True, 3, 3, 4, 3, 3) == pytest.approx(0.35)
+    assert bounded_prefix_reward(True, 3, 3, 4, 3, 3) > FAILURE_CEILING
+    assert bounded_prefix_reward(True, 0, 0, None, 0, 3) == 1.0
+    penalized = bounded_prefix_reward(False, 3, 3, None, 1, 3)
+    assert penalized == pytest.approx(0.001)
+    assert penalized > long_zero.reward
+    assert bounded_prefix_reward(False, 3, 3, None, 2, 3) > progress
+    clean = _chain(spec, [step_a, step_b, step_c, ("finish", {"answer": "4"})], PREFIX_VERSION)
+    assert clean.verified_success and clean.reward == 1.0
+    shaped_clean = _chain(spec, [step_a, step_b, step_c, ("finish", {"answer": "4"})], SHAPED_VERSION)
+    assert shaped_clean.reward == 1.0
+    outcome = task(mode="outcome", oracle={"answer": "4", "valid_call_bound": 1})
+    success = collect(outcome, [("calculator", {"expression": "2+2"})] * 10 + [("finish", {"answer": "4"})],
+                      version=PREFIX_VERSION)
+    failure = collect(outcome, [("calculator", {"expression": "2+2"})] * 10 + [wrong], version=PREFIX_VERSION)
+    assert success.reward > FAILURE_CEILING >= failure.reward
+    fresh = TrustedRewardSession(outcome, DictToolHarness())
+    fresh.invalid_attempt("parse_error")
+    assert score_executed_session(fresh, completion_reason="parse_error") == pytest.approx(-0.10)
+    assert group_advantages([1, 1])[0] == [0.0, 0.0]
+    assert group_advantages([-0.1, -0.1])[0] == [0.0, 0.0]
 
 
 def test_no_tool_alias_is_a_valid_zero_penalty_outcome():

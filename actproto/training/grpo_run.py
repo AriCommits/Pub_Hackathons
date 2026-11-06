@@ -208,22 +208,43 @@ def _sample_peft_action(model, tokenizer, prompt_ids, *, temperature, top_p, max
     return text, kept, logprobs, len(kept) >= max_new_tokens and kept[-1] != tokenizer.eos_token_id
 
 
-def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
-    """Build the in-process tool rollout. The sampler is the loaded policy."""
-    from actproto.training.rl_rollouts import BehaviorToolRollout, PolicySample
+STUDY_TURN_NEW_TOKENS = 256
 
-    if config.max_completion_length > 256:
+
+def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
+    """Build the in-process tool rollout. The sampler is the loaded policy.
+
+    ``max_completion_length`` stays the TRL loss denominator. Each sampled turn
+    receives ``STUDY_TURN_NEW_TOKENS`` new tokens and the named ``default``
+    chat template. The episode does not share one token pool across turns.
+    """
+    from actproto.training.rl_rollouts import BehaviorToolRollout, PolicySample
+    from actproto.training.sft_masks import selected_template
+
+    if config.max_completion_length > STUDY_TURN_NEW_TOKENS:
         raise GrpoConfigError("max_completion_length must stay at most 256")
+    template = selected_template(tokenizer, "default")
+
+    def active_model(trainer):
+        return model if trainer is None or getattr(trainer, "model", None) is None else trainer.model
+
+    def context_limit_reader(trainer):
+        active = active_model(trainer)
+        limit = getattr(getattr(active, "config", None), "max_position_embeddings", None)
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise GrpoConfigError("model context limit unavailable")
+        return limit
 
     def policy_factory(local_seed, trainer):
         del local_seed
-        active = model if trainer is None or getattr(trainer, "model", None) is None else trainer.model
+        active = active_model(trainer)
 
         def policy(prompt_ids, remaining):
+            # ``remaining`` is the per-turn cap from the episode, not a shrinking pool.
             text, token_ids, logprobs, truncated = _sample_peft_action(
                 active, tokenizer, prompt_ids,
                 temperature=config.temperature, top_p=config.top_p,
-                max_new_tokens=min(int(remaining), config.max_completion_length),
+                max_new_tokens=int(remaining),
             )
             return PolicySample(text, token_ids, logprobs, truncated)
 
@@ -232,9 +253,11 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
     return BehaviorToolRollout(
         tokenizer, tasks, policy_factory, lambda: scope,
         deadline_seconds=TRAIN_EPISODE_DEADLINE_SECONDS,
-        max_generated_tokens=config.max_completion_length,
+        max_generated_tokens=STUDY_TURN_NEW_TOKENS,
         seed=config.seed,
         run_id=run_id,
+        chat_template=template,
+        context_limit_reader=context_limit_reader,
     )
 
 

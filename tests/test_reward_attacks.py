@@ -112,6 +112,30 @@ def test_tampering_after_final_call_is_rejected_at_scoring():
     assert ledger.reward == 0 and not ledger.execution_compliance
 
 
+def test_forged_event_and_serialized_json_do_not_create_prefix_credit():
+    import json
+
+    import pytest
+
+    from actproto.training.rewards_v2 import PREFIX_VERSION
+
+    session = TrustedRewardSession(make_task(), DictToolHarness())
+    session._events.append({
+        "kind": "tool_call", "source": "model", "tool": "calculator",
+        "arguments": {"expression": "2+2"},
+        "output": {"ok": True, "data": {"value": 4}},
+        "state_before": {}, "state_after": {},
+    })
+    with pytest.raises(ValueError, match="forged"):
+        session.score(completion_reason="finish", version=PREFIX_VERSION)
+    with pytest.raises(TypeError):
+        TrustedRewardSession(make_task(), json.loads('{"execute": true}'))
+    untouched = TrustedRewardSession(make_task(), DictToolHarness())
+    untouched.execute("finish", {"answer": "calculator returned 4"})
+    ledger = untouched.score(completion_reason="finish", version=PREFIX_VERSION)
+    assert ledger.reward <= 0 and ledger.verified_success is False
+
+
 def test_nonmapping_state_tampering_returns_failure_ledger():
     harness = DictToolHarness()
     session = TrustedRewardSession(make_task(), harness)

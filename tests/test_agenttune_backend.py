@@ -162,6 +162,52 @@ def test_gpu_profile_passes_the_cpu_gate_and_rejects_vllm():
         create_trainer(use_cpu=False, gpu_profile="grpo_v2_gpu", use_vllm=False)
 
 
+def test_named_default_template_is_explicit_and_a_missing_name_fails():
+    import inspect
+    from types import SimpleNamespace
+
+    from actproto.agent.inference_v2 import ModelPolicy
+    from actproto.integrations.agenttune_backend import render_tokens
+    from actproto.training.sft_masks import _BRANCH
+
+    class NamedTokenizer:
+        def __init__(self):
+            self.chat_template = {
+                "default": "DEFAULT-TEMPLATE\n" + _BRANCH,
+                "alternate": "ALTERNATE-TEMPLATE\n" + _BRANCH,
+            }
+            self.seen = []
+
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt, chat_template=None):
+            self.seen.append(chat_template)
+            text = "".join(f"<{message['role']}>{message['content']}</{message['role']}>" for message in messages)
+            if add_generation_prompt:
+                text += "<assistant>"
+            return list(map(ord, text))
+
+    tokenizer = NamedTokenizer()
+    model = SimpleNamespace(config=SimpleNamespace(max_position_embeddings=8192))
+    policy = ModelPolicy(model, tokenizer)
+    assert policy.template == tokenizer.chat_template["default"]
+    assert policy.max_new_tokens == 256
+    assert "do_sample=False" in inspect.getsource(ModelPolicy.__call__)
+    ids = render_tokens(tokenizer, [{"role": "user", "content": "question"}], generation=True,
+                        chat_template=policy.template)
+    assert ids
+    assert tokenizer.seen == [policy.template]
+    with pytest.raises(BackendCompatibilityError, match="named chat template"):
+        render_tokens(tokenizer, [{"role": "user", "content": "question"}], generation=True)
+
+    class StringTemplate(CharacterTokenizer):
+        chat_template = "plain string template"
+
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt, **kwargs):
+            assert "chat_template" not in kwargs
+            return super().apply_chat_template(messages, tokenize, add_generation_prompt)
+
+    assert render_tokens(StringTemplate(), [{"role": "user", "content": "question"}], generation=True)
+
+
 @pytest.mark.skipif(not _AGENTTUNE, reason="AgentTune is installed in the isolated RL environment")
 def test_cpu_construction_cannot_be_relabelled_as_the_gpu_profile():
     from actproto.integrations.agenttune_backend import create_trainer

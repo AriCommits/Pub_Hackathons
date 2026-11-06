@@ -702,6 +702,58 @@ def test_parse_failure_and_timeout_are_invalid_not_a_successful_finish():
     assert timed.session.captured_tool_events() == []
 
 
+def test_each_sampled_turn_gets_256_tokens_and_truncation_does_not_leave_zero():
+    from actproto.training.rl_rollouts import run_trusted_behavior_episode
+    spec = task()
+    budgets = []
+
+    def policy(ids, budget):
+        budgets.append(budget)
+        if len(budgets) < 3:
+            return generated(call("calculator", {"expression": f"{len(budgets)}+0"}))
+        return generated(call("finish", {"answer": "1"}))
+
+    episode = run_trusted_behavior_episode(
+        spec, tokenizer=CharacterTokenizer(), policy=policy,
+        environment_factory=lambda: _install_for_task(_BoundScope(spec)),
+        deadline_seconds=5,
+    )
+    assert budgets == [256, 256, 256]
+    assert episode.completion_reason == "finish"
+    assert 0 not in budgets
+
+    truncated_budgets = []
+
+    def truncated(ids, budget):
+        truncated_budgets.append(budget)
+        text = "x" * 256
+        return PolicySample(text, list(map(ord, text)), [-0.1] * 256, True)
+
+    stopped = run_trusted_behavior_episode(
+        spec, tokenizer=CharacterTokenizer(), policy=truncated,
+        environment_factory=lambda: _install_for_task(_BoundScope(spec)),
+        deadline_seconds=5,
+    )
+    assert truncated_budgets == [256]
+    assert stopped.completion_reason == "truncated"
+    assert list(map(ord, "x" * 256))[0] in stopped.completion_ids
+
+    called = []
+
+    def should_not_run(ids, budget):
+        called.append(budget)
+        return generated(call("finish", {"answer": "1"}))
+
+    overflow = run_trusted_behavior_episode(
+        spec, tokenizer=CharacterTokenizer(), policy=should_not_run,
+        environment_factory=lambda: _install_for_task(_BoundScope(spec)),
+        deadline_seconds=5, context_limit=32,
+    )
+    assert called == []
+    assert overflow.completion_reason == "context_overflow"
+    assert overflow.completion_ids == []
+
+
 def test_live_reward_tool_events_cannot_be_mutated_by_caller():
     from actproto.agent.harness import DictToolHarness
     from actproto.training.rewards_v2 import TrustedRewardSession

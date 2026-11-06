@@ -358,10 +358,14 @@ def _public_user_text(prompt: Any) -> str:
 def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Callable,
                                  environment_factory: Callable, deadline_seconds: float,
                                  max_generated_tokens: int = 256, session=None,
-                                 clock: Callable[[], float] | None = None) -> BehaviorEpisode:
+                                 clock: Callable[[], float] | None = None,
+                                 chat_template: str | None = None,
+                                 context_limit: int | None = None) -> BehaviorEpisode:
     """Execute one train episode on a fresh scoped harness and keep the live session.
 
-    A deadline is required. Timeout, truncation, a parse failure, and an exhausted
+    Each sampled decision gets ``max_generated_tokens`` new tokens. That number
+    is a per-turn cap, not a pool shared by later turns. A deadline is required.
+    Timeout, truncation, context overflow, a parse failure, and an exhausted
     decision cap are invalid attempts. They are not a successful finish. The
     caller cannot supply the session or a serialized trace.
     """
@@ -372,8 +376,14 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
         raise ValueError("caller-supplied sessions are not permitted")
     if not _positive_deadline(deadline_seconds):
         raise ValueError("behavior collection requires a hard-deadline executor; only synthetic fixtures are supported")
+    if isinstance(max_generated_tokens, bool) or not isinstance(max_generated_tokens, int):
+        raise ValueError("max_generated_tokens must be between 1 and 256")
     if max_generated_tokens < 1 or max_generated_tokens > 256:
         raise ValueError("max_generated_tokens must be between 1 and 256")
+    if context_limit is not None and (isinstance(context_limit, bool) or not isinstance(context_limit, int)
+                                       or context_limit < 1):
+        raise ValueError("model context limit unavailable")
+    per_turn = max_generated_tokens
     if task.split != "train" or not task.prompt:
         raise ValueError("only public training tasks may be rolled out")
     tool_session = new_session(task, environment_factory, allow_unscoped_fixture=False)
@@ -391,17 +401,20 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
     now = clock or monotonic
     started = now()
     messages = [{"role": "system", "content": system_prompt()}, {"role": "user", "content": task.prompt}]
-    token_ids = list(render_tokens(tokenizer, messages, generation=True))
+
+    def _render(current: list[dict], generation: bool) -> list[int]:
+        return render_tokens(tokenizer, current, generation=generation, chat_template=chat_template)
+
+    token_ids = list(_render(messages, True))
     policy_mask = [0] * len(token_ids)
     aligned: list[float | None] = [None] * len(token_ids)
     prompt_length = len(token_ids)
-    generated_tokens = 0
     completion = "budget_exhausted"
     decision_cap = max(int(task.call_budget), 2)
 
     def _append_sample(sample: PolicySample, prompt_ids: list[int]) -> None:
-        nonlocal token_ids, policy_mask, aligned, generated_tokens
-        rendered = render_tokens(tokenizer, messages + [{"role": "assistant", "content": sample.text}], generation=False)
+        nonlocal token_ids, policy_mask, aligned
+        rendered = _render(messages + [{"role": "assistant", "content": sample.text}], False)
         if rendered[:len(prompt_ids) + len(sample.token_ids)] != prompt_ids + list(sample.token_ids):
             raise ValueError("template_mismatch")
         token_ids.extend(sample.token_ids)
@@ -411,7 +424,6 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
         token_ids.extend(padding)
         policy_mask.extend([0] * len(padding))
         aligned.extend([None] * len(padding))
-        generated_tokens += len(sample.token_ids)
         messages.append({"role": "assistant", "content": sample.text})
 
     def _keep_raw(sample: PolicySample) -> None:
@@ -420,16 +432,15 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
         An end-of-sequence or unparsable sample is still a policy decision.
         It is not executed and it is not a successful finish.
         """
-        nonlocal token_ids, policy_mask, aligned, generated_tokens
+        nonlocal token_ids, policy_mask, aligned
         token_ids.extend(sample.token_ids)
         policy_mask.extend([1] * len(sample.token_ids))
         aligned.extend(list(sample.logprobs))
-        generated_tokens += len(sample.token_ids)
 
     def _append_observation(output: dict) -> None:
         nonlocal token_ids, policy_mask, aligned
         messages.append({"role": "tool", "content": json.dumps(output, sort_keys=True)})
-        rendered = render_tokens(tokenizer, messages, generation=True)
+        rendered = _render(messages, True)
         if rendered[:len(token_ids)] != token_ids:
             raise ValueError("template_mismatch")
         added = rendered[len(token_ids):]
@@ -442,18 +453,17 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
             reward.invalid_attempt("timeout")
             completion = "timeout"
             break
-        remaining = max_generated_tokens - generated_tokens
-        if remaining <= 0:
-            reward.invalid_attempt("truncation")
-            completion = "truncated"
-            break
-        prompt_ids = render_tokens(tokenizer, messages, generation=True)
+        prompt_ids = _render(messages, True)
         if prompt_ids != token_ids:
             reward.invalid_attempt("template_mismatch")
             completion = "template_mismatch"
             break
+        if context_limit is not None and len(prompt_ids) + per_turn > context_limit:
+            reward.invalid_attempt("context_overflow")
+            completion = "context_overflow"
+            break
         try:
-            sample = policy(list(prompt_ids), remaining)
+            sample = policy(list(prompt_ids), per_turn)
         except Exception as exc:
             reward.invalid_attempt(f"policy_error: {exc}")
             completion = "policy_error"
@@ -476,7 +486,7 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
             reward.invalid_attempt("policy_error")
             completion = "policy_error"
             break
-        if len(ids) > remaining or sample.truncated:
+        if len(ids) > per_turn or sample.truncated:
             try:
                 _append_sample(sample, prompt_ids)
             except ValueError:
@@ -520,12 +530,14 @@ def run_trusted_behavior_episode(task: TaskSpec, *, tokenizer: Any, policy: Call
     else:
         reward.invalid_attempt("budget_exhausted")
         completion = "budget_exhausted"
-    if not any(policy_mask):
+    if not any(policy_mask) and completion != "context_overflow":
         raise ValueError("behavior episode produced no policy tokens")
     completion_ids = token_ids[prompt_length:]
     mask = policy_mask[prompt_length:]
     logprobs = [float(value) if value is not None else 0.0 for value in aligned[prompt_length:]]
-    if not completion_ids or len(completion_ids) != len(mask) or len(mask) != len(logprobs):
+    if len(completion_ids) != len(mask) or len(mask) != len(logprobs):
+        raise ValueError("behavior episode token alignment failed")
+    if not completion_ids and completion != "context_overflow":
         raise ValueError("behavior episode token alignment failed")
     return BehaviorEpisode(token_ids[:prompt_length], completion_ids, logprobs, mask, reward, completion)
 
@@ -534,7 +546,8 @@ class BehaviorToolRollout(AgenticRolloutAdapter):
     """Trainer callback that samples a policy and executes train-task tools in-process."""
 
     def __init__(self, tokenizer, tasks, policy_factory, environment_factory, *, deadline_seconds,
-                 max_generated_tokens=256, seed=42, run_id="grpo-tools"):
+                 max_generated_tokens=256, seed=42, run_id="grpo-tools", chat_template=None,
+                 context_limit_reader=None):
         if not _positive_deadline(deadline_seconds):
             raise ValueError("behavior collection requires a hard-deadline executor; only synthetic fixtures are supported")
         if not callable(policy_factory) or not callable(environment_factory):
@@ -551,6 +564,8 @@ class BehaviorToolRollout(AgenticRolloutAdapter):
         self.environment_factory = environment_factory
         self.deadline_seconds = float(deadline_seconds)
         self.max_generated_tokens = max_generated_tokens
+        self.chat_template = chat_template
+        self.context_limit_reader = context_limit_reader
         self.seed = seed
         self.run_id = run_id
 
@@ -580,11 +595,14 @@ class BehaviorToolRollout(AgenticRolloutAdapter):
                 raise ValueError("training prompt leaked private oracle data")
             local_seed = rollout_seed(self.run_id, task.task_id, 0, index, self.seed)
             policy = self.policy_factory(local_seed, trainer)
+            limit = self.context_limit_reader(trainer) if self.context_limit_reader is not None else None
             episode = run_trusted_behavior_episode(
                 task, tokenizer=self.tokenizer, policy=policy,
                 environment_factory=self.environment_factory,
                 deadline_seconds=self.deadline_seconds,
                 max_generated_tokens=self.max_generated_tokens,
+                chat_template=self.chat_template,
+                context_limit=limit,
             )
             result["prompt_ids"].append(episode.prompt_ids)
             result["completion_ids"].append(episode.completion_ids)

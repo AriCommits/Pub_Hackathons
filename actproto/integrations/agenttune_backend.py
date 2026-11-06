@@ -68,13 +68,38 @@ def create_trainer(**kwargs: Any) -> Any:
     return create_agentic_trainer("grpo", backend="trl", **kwargs)
 
 
-def render_tokens(tokenizer: Any, messages: list[dict], *, generation: bool) -> list[int]:
+def render_tokens(tokenizer: Any, messages: list[dict], *, generation: bool,
+                  chat_template: str | None = None) -> list[int]:
+    """Render messages. A dict of named templates requires an explicit string.
+
+    ``messages_for_template`` still rewrites tool observations as user turns
+    before the tokenizer sees them. A string ``tokenizer.chat_template`` keeps
+    the historical call with no ``chat_template`` argument.
+    """
     from actproto.agent.prompts import messages_for_template
-    encoded = tokenizer.apply_chat_template(messages_for_template(messages), tokenize=True,
-                                             add_generation_prompt=generation)
+
+    prepared = messages_for_template(messages)
+    kwargs: dict[str, Any] = {"tokenize": True, "add_generation_prompt": generation}
+    if chat_template is not None:
+        if not isinstance(chat_template, str) or not chat_template:
+            raise BackendCompatibilityError("chat template must be an explicit string")
+        kwargs["chat_template"] = chat_template
+    elif isinstance(getattr(tokenizer, "chat_template", None), dict):
+        raise BackendCompatibilityError("named chat template required before sampling")
+    encoded = tokenizer.apply_chat_template(prepared, **kwargs)
     if hasattr(encoded, "keys"):
         encoded = encoded["input_ids"]
     return list(encoded)
+
+
+def _with_named_default(tokenizer: Any, chat_template: str | None) -> str | None:
+    """Pass ``default`` when the tokenizer stores a dict and the caller did not."""
+    if chat_template is not None:
+        return chat_template
+    if isinstance(getattr(tokenizer, "chat_template", None), dict):
+        from actproto.training.sft_masks import selected_template
+        return selected_template(tokenizer, "default")
+    return None
 
 
 def episode_token_mask(tokenizer: Any, initial: list[dict], action: str,
@@ -83,14 +108,16 @@ def episode_token_mask(tokenizer: Any, initial: list[dict], action: str,
 
     The mask describes template spans, not evidence of the backend's actual loss.
     """
+    template = _with_named_default(tokenizer, None)
     stages = [
-        render_tokens(tokenizer, initial, generation=True),
-        render_tokens(tokenizer, initial + [{"role": "assistant", "content": action}], generation=False),
+        render_tokens(tokenizer, initial, generation=True, chat_template=template),
+        render_tokens(tokenizer, initial + [{"role": "assistant", "content": action}], generation=False,
+                      chat_template=template),
         render_tokens(tokenizer, initial + [{"role": "assistant", "content": action},
-                      {"role": "tool", "content": observation}], generation=True),
+                      {"role": "tool", "content": observation}], generation=True, chat_template=template),
         render_tokens(tokenizer, initial + [{"role": "assistant", "content": action},
                       {"role": "tool", "content": observation},
-                      {"role": "assistant", "content": finish}], generation=False),
+                      {"role": "assistant", "content": finish}], generation=False, chat_template=template),
     ]
     for earlier, later in zip(stages, stages[1:]):
         if later[:len(earlier)] != earlier:
@@ -114,14 +141,15 @@ def assemble_episode_tokens(tokenizer: Any, initial: list[dict],
     """
     if not decisions or decisions[-1][2] is not None:
         raise BackendCompatibilityError("Episode must end with a terminal decision")
+    template = _with_named_default(tokenizer, None)
     messages = list(initial)
-    tokens = render_tokens(tokenizer, messages, generation=True)
+    tokens = render_tokens(tokenizer, messages, generation=True, chat_template=template)
     mask = [0] * len(tokens)
     for index, (action, sampled, observation) in enumerate(decisions):
         if not sampled or (observation is None) != (index == len(decisions) - 1):
             raise BackendCompatibilityError("Invalid sampled action or termination position")
         messages.append({"role": "assistant", "content": action})
-        rendered = render_tokens(tokenizer, messages, generation=False)
+        rendered = render_tokens(tokenizer, messages, generation=False, chat_template=template)
         expected = tokens + list(sampled)
         if rendered[:len(expected)] != expected:
             raise BackendCompatibilityError("Sampled action tokens do not match the rendered context")
@@ -130,7 +158,7 @@ def assemble_episode_tokens(tokenizer: Any, initial: list[dict],
         tokens = rendered
         if observation is not None:
             messages.append({"role": "tool", "content": observation})
-            rendered = render_tokens(tokenizer, messages, generation=True)
+            rendered = render_tokens(tokenizer, messages, generation=True, chat_template=template)
             if rendered[:len(tokens)] != tokens:
                 raise BackendCompatibilityError("Observation rewrites earlier sampled tokens")
             mask.extend([0] * (len(rendered) - len(tokens)))
@@ -148,14 +176,16 @@ def run_fixture_episode(tokenizer: Any, initial: list[dict], generate: Any,
 
     if not 1 <= max_decisions <= 32:
         raise BackendCompatibilityError("max_decisions must be between 1 and 32")
+    template = _with_named_default(tokenizer, None)
     messages = list(initial)
     decisions = []
     observations = []
     for _ in range(max_decisions):
-        prompt_ids = render_tokens(tokenizer, messages, generation=True)
+        prompt_ids = render_tokens(tokenizer, messages, generation=True, chat_template=template)
         action, sampled = generate(list(prompt_ids))
         sampled = list(sampled)
-        rendered = render_tokens(tokenizer, messages + [{"role": "assistant", "content": action}], generation=False)
+        rendered = render_tokens(tokenizer, messages + [{"role": "assistant", "content": action}],
+                                 generation=False, chat_template=template)
         if not sampled or rendered[:len(prompt_ids) + len(sampled)] != prompt_ids + sampled:
             raise BackendCompatibilityError("Sampled action tokens do not match the rendered context")
         call = parse_single_call(action)
@@ -214,7 +244,9 @@ class AgenticRolloutAdapter:
                 return action, token_ids
             episode = run_fixture_episode(self.tokenizer, initial, sample, self.execute_tool,
                                           max_decisions=self.max_decisions)
-            prompt_length = len(render_tokens(self.tokenizer, initial, generation=True))
+            prompt_length = len(render_tokens(
+                self.tokenizer, initial, generation=True,
+                chat_template=_with_named_default(self.tokenizer, None)))
             completion = episode["token_ids"][prompt_length:]
             mask = episode["policy_mask"][prompt_length:]
             values = iter(sampled_logprobs)

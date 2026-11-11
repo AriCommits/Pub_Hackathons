@@ -279,14 +279,74 @@ def _study_rollout(model, tokenizer, tasks, scope, config, run_id: str):
     )
 
 
+RAW_COMPLETION_PREVIEW_CHARS = 512
+
+
+def completion_preview(text, *, limit: int = RAW_COMPLETION_PREVIEW_CHARS) -> str | None:
+    """Capped decoded text for diagnostics. Reward scoring still ignores this string."""
+    if not isinstance(text, str) or not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def completion_reason_counts(rows: list[dict] | None) -> dict[str, int]:
+    """Counter of completion_reason values from one step's completion rows."""
+    counts: dict[str, int] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        reason = row.get("completion_reason")
+        if not isinstance(reason, str) or not reason:
+            continue
+        counts[reason] = counts.get(reason, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def summarize_step_diagnostics(path) -> dict:
+    """Aggregate completion_reason counts from a step_diagnostics.jsonl file (CPU)."""
+    from pathlib import Path
+
+    target = Path(path)
+    totals: dict[str, int] = {}
+    steps = 0
+    with target.open(encoding="utf-8") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            steps += 1
+            rows = record.get("completions") or []
+            if rows:
+                step_counts = completion_reason_counts(rows)
+            else:
+                rollup = record.get("completion_reason_counts") or {}
+                step_counts = {
+                    reason: int(count)
+                    for reason, count in rollup.items()
+                    if isinstance(reason, str) and isinstance(count, (int, float)) and not isinstance(count, bool)
+                }
+            for reason, count in step_counts.items():
+                totals[reason] = totals.get(reason, 0) + int(count)
+    return {
+        "path": str(target),
+        "steps": steps,
+        "completion_reason_counts": dict(sorted(totals.items())),
+    }
+
+
 def _executed_trace_reward(completions, reward_sessions=None, completion_reasons=None, group_size=2,
                            skipped_tied_batch=False, **kwargs):
     """Score captured tool sessions with ``bounded_prefix_v1``.
 
     A decoded completion that merely contains "finish" is not success. The
-    completion text is ignored. Serialized rollout JSON is not evidence, and
-    no token-length bonus is added. A session that already has a ledger is
-    read once and is not scored again.
+    completion text does not affect the reward scalar. A capped preview is
+    stored in step diagnostics so the next train/Colab run can attribute a
+    constant -0.1 to parse_error vs truncation vs template_mismatch. Serialized
+    rollout JSON is not evidence, and no token-length bonus is added. A session
+    that already has a ledger is read once and is not scored again.
     """
     del kwargs
     from actproto.training.rewards_v2 import PREFIX_VERSION, TrustedRewardSession, ledger_components
@@ -301,14 +361,18 @@ def _executed_trace_reward(completions, reward_sessions=None, completion_reasons
         raise GrpoConfigError("each executed trace needs one completion reason")
     rewards = []
     rows = []
-    for session, reason in zip(reward_sessions, completion_reasons):
+    for session, reason, completion in zip(reward_sessions, completion_reasons, completions):
+        preview = completion_preview(completion)
         if session is None:
             rewards.append(0.0)
-            rows.append({
+            row = {
                 "reward": 0.0, "verified_success": False, "invalid_attempts": 0,
                 "duplicate_calls": 0, "excess_calls": None, "excess_omitted_reason": None,
                 "completion_reason": reason,
-            })
+            }
+            if preview is not None:
+                row["decoded_completion_preview"] = preview
+            rows.append(row)
             continue
         if not isinstance(session, TrustedRewardSession):
             raise GrpoConfigError("training reward requires a live trusted session")
@@ -316,7 +380,10 @@ def _executed_trace_reward(completions, reward_sessions=None, completion_reasons
         if existing is None:
             existing = session.score(completion_reason=str(reason), version=PREFIX_VERSION)
         rewards.append(existing.reward)
-        rows.append(ledger_components(existing, str(reason)))
+        row = ledger_components(existing, str(reason))
+        if preview is not None:
+            row["decoded_completion_preview"] = preview
+        rows.append(row)
     _remember_step(rewards, group_size, completions=rows, skipped_tied_batch=bool(skipped_tied_batch))
     return rewards
 
@@ -407,6 +474,7 @@ def diagnostic_record(logs: dict | None, diagnostics: dict, trainer=None) -> dic
     logs = dict(logs or {})
     skipped = bool(diagnostics.get("skipped_tied_batch"))
     grad_norm = 0.0 if skipped else logs.get("grad_norm", diagnostics.get("grad_norm"))
+    completions = list(diagnostics.get("completions") or [])
     record = {
         "reward_mean": logs.get("reward", diagnostics.get("reward_mean")),
         "reward_std": logs.get("reward_std", diagnostics.get("reward_std")),
@@ -415,7 +483,8 @@ def diagnostic_record(logs: dict | None, diagnostics: dict, trainer=None) -> dic
         "loss": logs.get("loss", diagnostics.get("loss")),
         "frac_reward_zero_std": frac_reward_zero_std(logs, trainer),
         "skipped_tied_batch": skipped,
-        "completions": list(diagnostics.get("completions") or []),
+        "completions": completions,
+        "completion_reason_counts": completion_reason_counts(completions),
     }
     eos = {}
     if "completions/clipped_ratio" in logs:

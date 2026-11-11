@@ -19,6 +19,7 @@ Canonical handoff. Prefer this file over older plan docs and the long `EXPERIMEN
 - Historical YAMLs live in `actproto/configs/archive/` and require `--allow-historical`
 - Protected output dirs include `grpo_gpu_e2`, `grpo_gpu_tools`, `grpo_gpu_prefix`, smokes
 - Tool-reward GRPO runs are **negative results**; the 200/200 macro 1.0 figure is SFT e2 validation, not GRPO
+- Historical `grpo_gpu_tools` logs do **not** include a `completion_reason` distribution (gitignored `results/rl_v2/**` absent here). Next train writes capped `decoded_completion_preview` + `completion_reason_counts` into `step_diagnostics.jsonl`; aggregate with `python scripts/summarize_grpo_diagnostics.py <path>`.
 
 ```bash
 # GPU study (requires CUDA env + --live-gpu; refuses CPU default config)

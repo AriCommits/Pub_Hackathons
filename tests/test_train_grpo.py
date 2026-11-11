@@ -899,8 +899,9 @@ def test_tied_batch_redraws_once_and_a_second_tie_skips_without_moving_weights(t
     stuck = tied([spec.prompt, spec.prompt], trainer=None)
     assert stuck["skipped_tied_batch"] is True
     assert made["n"] == 4
+    long_completion = "finish " * 30
     tied_rewards = _executed_trace_reward(
-        ["finish", "finish " * 30], stuck["reward_sessions"], stuck["completion_reasons"],
+        ["not a call", long_completion], stuck["reward_sessions"], stuck["completion_reasons"],
         skipped_tied_batch=True,
     )
     assert tied_rewards == pytest.approx([-0.1, -0.1])
@@ -908,6 +909,11 @@ def test_tied_batch_redraws_once_and_a_second_tie_skips_without_moving_weights(t
     unchanged, record = tied_step_leaves_weights(weights, tied_rewards, 2)
     assert unchanged == weights
     assert record["grad_norm"] == 0.0
+    previews = [row.get("decoded_completion_preview") for row in _LAST_STEP["completions"]]
+    assert previews[0] == "not a call"
+    assert previews[1] == long_completion
+    assert _LAST_STEP["completions"][0]["completion_reason"] == "parse_error"
+    assert _LAST_STEP["completions"][1]["completion_reason"] == "truncated"
 
     class _Grad:
         def __init__(self):
@@ -947,6 +953,8 @@ def test_tied_batch_redraws_once_and_a_second_tie_skips_without_moving_weights(t
     assert logged["frac_reward_zero_std"] == 1.0
     assert logged["eos_based_clip"]["completions/clipped_ratio"] == 1.0
     assert "eos_based_clip" in logged
+    assert logged["completion_reason_counts"] == {"parse_error": 1, "truncated": 1}
+    assert logged["completions"][0]["decoded_completion_preview"] == "not a call"
     text = json.dumps(logged)
     assert "oracle" not in text and "hidden-oracle" not in text
     path = tmp_path / "step_diagnostics.jsonl"
@@ -954,6 +962,12 @@ def test_tied_batch_redraws_once_and_a_second_tie_skips_without_moving_weights(t
     assert "skipped_tied_batch" in path.read_text(encoding="utf-8")
     from_log = diagnostic_record({"frac_reward_zero_std": 0.5, "loss": 1.0}, _LAST_STEP, trainer)
     assert from_log["frac_reward_zero_std"] == 0.5
+    from actproto.training.grpo_run import completion_preview, summarize_step_diagnostics
+
+    assert completion_preview("x" * 600).endswith("x") and len(completion_preview("x" * 600)) == 512
+    summary = summarize_step_diagnostics(path)
+    assert summary["steps"] == 1
+    assert summary["completion_reason_counts"] == {"parse_error": 1, "truncated": 1}
 
 
 class _CharTokenizer:

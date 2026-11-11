@@ -1,4 +1,4 @@
-output_dir: results/adapters/b1
+output_dir: results/adapters/lora_run
 lora_rank: 16
 lora_alpha: 32
 lora_dropout: 0.05

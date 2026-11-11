@@ -49,3 +49,15 @@ def test_schema_rejects_extra_fields():
     ok, reason = validate_args("calculator", {"expression": "1+1", "hack": True})
     assert ok is False
     assert "unexpected" in reason
+
+
+def test_schema_rejects_bool_as_integer():
+    ok, reason = validate_args("query_database", {"year": True})
+    assert ok is False
+    assert "integer" in reason
+
+
+def test_calculator_rejects_oversized_expression():
+    result = call_tool("calculator", {"expression": "1+" * 200 + "1"})
+    assert result["ok"] is False
+    assert "exceeds" in result["error"]["message"]

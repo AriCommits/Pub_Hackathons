@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from actproto.training.grpo_run import run_collect_only, run_gpu_smoke, run_plan, run_resume, run_smoke, run_train  # noqa: E402
-from actproto.training.rl_config import GRPO_GPU_PROFILE, RTX_5060_TI_UUID, GrpoConfigError, load_grpo_config, resolve_output  # noqa: E402
+from actproto.training.rl_config import GRPO_GPU_PROFILE, GrpoConfigError, load_grpo_config, preferred_device_uuid, resolve_output  # noqa: E402
 from actproto.training.rl_device import normalize_uuid, ordinal_from_nvidia_rows, parse_nvidia_gpu_csv  # noqa: E402
 
 CONFIG = ROOT / "actproto" / "configs" / "grpo_v2.yaml"
@@ -32,9 +32,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", help="relative directory inside results/rl_v2")
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--live-gpu", action="store_true", help="run the gated CUDA fixture smoke")
+    parser.add_argument(
+        "--allow-historical",
+        action="store_true",
+        help="permit loading configs under actproto/configs/archive/",
+    )
     args = parser.parse_args(argv)
     try:
-        config = load_grpo_config(args.config)
+        if args.train and args.live_gpu and args.config.resolve() == CONFIG.resolve():
+            raise GrpoConfigError(
+                "--train --live-gpu requires an explicit GPU --config "
+                "(e.g. actproto/configs/grpo_v2_gpu_prefix.yaml); refusing the CPU default"
+            )
+        config = load_grpo_config(args.config, allow_historical=args.allow_historical)
         if args.plan_only:
             payload = run_plan(config, ROOT)
         elif args.collect_only:
@@ -104,7 +114,8 @@ def visible_ordinal_for_5060() -> str:
         check=True, capture_output=True, text=True,
     )
     rows = parse_nvidia_gpu_csv(completed.stdout)
-    preferred = ordinal_from_nvidia_rows(rows, RTX_5060_TI_UUID)
+    expected = preferred_device_uuid()
+    preferred = ordinal_from_nvidia_rows(rows, expected)
     candidates = [preferred] + [index for index, _raw in rows if index != preferred]
     for ordinal in candidates:
         if _mask_keeps_5060(ordinal):
@@ -136,6 +147,7 @@ def _mask_keeps_5060(ordinal: str) -> bool:
 
 
 def assert_5060_idle() -> None:
+    expected = preferred_device_uuid()
     gpu = subprocess.run(
         ["nvidia-smi", "--query-gpu=uuid,memory.used", "--format=csv,noheader"],
         check=True, capture_output=True, text=True,
@@ -144,7 +156,7 @@ def assert_5060_idle() -> None:
         if "," not in line:
             continue
         raw_uuid, used = [part.strip() for part in line.split(",", 1)]
-        if normalize_uuid(raw_uuid) != RTX_5060_TI_UUID:
+        if normalize_uuid(raw_uuid) != expected:
             continue
         number = used.split()[0]
         if number.isdigit() and int(number) > 4096:
@@ -157,7 +169,7 @@ def assert_5060_idle() -> None:
         if "," not in line:
             continue
         raw_uuid, name = [part.strip() for part in line.split(",", 1)]
-        if normalize_uuid(raw_uuid) == RTX_5060_TI_UUID and "python" in name.lower():
+        if normalize_uuid(raw_uuid) == expected and "python" in name.lower():
             raise GrpoConfigError("RTX 5060 Ti already has a Python compute process")
 
 

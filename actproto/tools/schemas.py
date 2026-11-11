@@ -80,6 +80,6 @@ def validate_args(tool: str, arguments: dict) -> tuple[bool, str]:
         expected = props.get(key, {}).get("type")
         if expected == "string" and not isinstance(value, str):
             return False, f"{key} must be a string"
-        if expected == "integer" and not isinstance(value, int):
+        if expected == "integer" and type(value) is not int:
             return False, f"{key} must be an integer"
     return True, "ok"

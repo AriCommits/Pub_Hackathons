@@ -27,7 +27,7 @@ def write_dump(path: str | Path, records: list[dict[str, Any]]) -> None:
 
 def read_dump(path: str | Path) -> tuple[np.ndarray, list[dict[str, Any]]]:
     dest = Path(path)
-    vectors = np.load(dest / "vectors.npz")["vectors"]
+    vectors = np.load(dest / "vectors.npz", allow_pickle=False)["vectors"]
     index = []
     with (dest / "index.jsonl").open(encoding="utf-8") as fh:
         for line in fh:

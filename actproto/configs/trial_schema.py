@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from actproto.utils.paths import PathEscapeError, contain_under
+
 CONFIG_DIR = Path(__file__).resolve().parent
 DEFAULT_TRIAL_PATH = CONFIG_DIR / "trial.yaml"
 
@@ -21,7 +23,7 @@ def project_root() -> Path:
 class PathsConfig:
     data_processed: str = "data/processed"
     activations_dump: str = "results/activations"
-    adapter_b1: str = "results/adapters/b1"
+    adapter_b1: str = "results/adapters/b1"  # historical B1 artifact path (do not train into this by default)
     results_root: str = "results"
     prototypes_dir: str = "results"
     reports_dir: str = "results/b0_b2"
@@ -68,7 +70,7 @@ class RunSpec:
 
 @dataclass
 class ExportConfig:
-    adapter: str = "results/adapters/b1"
+    adapter: str = "results/sft_v2/e2"
     data: str = "data/processed"
     logs: str = "results/b0_b2"
 
@@ -92,10 +94,10 @@ class TrialConfig:
     def resolve(self, rel: str | None) -> Path | None:
         if rel is None:
             return None
-        p = Path(rel)
-        if p.is_absolute():
-            return p
-        return (self._root / p).resolve()
+        try:
+            return contain_under(self._root, rel, label="trial path")
+        except PathEscapeError:
+            raise
 
     def report_dir(self, run_id: str) -> Path:
         return self.resolve(self.paths.reports_dir) / run_id  # type: ignore[operator]

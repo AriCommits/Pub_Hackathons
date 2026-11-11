@@ -86,7 +86,8 @@ def main(argv=None):
             hash_object({'model_id': config['model_id'], 'revision': config['revision'], 'adapter_sha256': digest}), env.digest,
             hash_bytes(template.encode()), hash_file(ROOT / 'actproto/evaluation/verification_v2.py'), revision)
         run, token = prepare_run(a.output_root, manifest)
-        (run / 'resume-token.txt').write_text(token, encoding='utf-8')
+        from actproto.utils.secret_scan import write_secret_file
+        write_secret_file(run / 'resume-token.txt', token)
         model = AutoModelForCausalLM.from_pretrained(config['model_id'], revision=config['revision'],
                                                      dtype=torch.bfloat16, device_map={'': 0})
         if a.adapter:

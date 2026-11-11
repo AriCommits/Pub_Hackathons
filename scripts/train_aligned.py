@@ -16,14 +16,22 @@ from actproto.training.lora_config import LoraSftConfig  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="B4 alignment-loss LoRA (stretch).")
+    parser = argparse.ArgumentParser(
+        description="B4 alignment-loss LoRA (stretch). Plan-only stub; does not train."
+    )
     parser.add_argument("--plan-only", action="store_true", help="Print alignment payload without training.")
     parser.add_argument("--lambda", dest="lam", type=float, default=0.1)
     args = parser.parse_args(argv)
     tasks = [t for t in generate_tasks() if t.split == "train"][:8]
     payload = build_aligned_payload(tasks, LoraSftConfig.load(), lam=args.lam)
     print(json.dumps({k: payload[k] for k in ("n_rows", "output_dir", "alignment", "path")}, indent=2))
-    return 0 if args.plan_only or True else 2
+    if not args.plan_only:
+        print(
+            "train_aligned.py does not train; pass --plan-only or use scripts/train_lora.py / train_sft_v2.py",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

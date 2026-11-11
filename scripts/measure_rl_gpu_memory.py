@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from actproto.training.rl_config import RTX_4060_UUID, RTX_5060_TI_UUID  # noqa: E402
+from actproto.training.rl_config import RTX_4060_UUID, preferred_device_uuid  # noqa: E402
 from actproto.training.rl_device import normalize_uuid  # noqa: E402
 
 OUTPUT = ROOT / "results" / "rl_v2" / "gpu_memory" / "tiny_aya_bf16.json"
@@ -36,7 +36,7 @@ def build_memory_record(
     uuid = normalize_uuid(device_uuid)
     if uuid == RTX_4060_UUID or "4060" in device_name:
         raise ValueError("the RTX 4060 cannot host the Tiny Aya memory probe")
-    if uuid != RTX_5060_TI_UUID or "RTX 5060 Ti" not in device_name:
+    if uuid != preferred_device_uuid() or "RTX 5060 Ti" not in device_name:
         raise ValueError("memory probe requires the RTX 5060 Ti")
     if min(allocated_bytes, reserved_bytes, peak_allocated_bytes) < 0:
         raise ValueError("memory byte counts must be non-negative")

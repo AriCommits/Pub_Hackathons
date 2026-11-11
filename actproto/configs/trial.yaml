@@ -112,7 +112,7 @@ runs:
     max_agent_steps: 4
     replicas: 1
   B2ordereval:
-    description: one copy of each curriculum order on the order-curriculum adapter
+    description: "diagnostic_train_echo: one copy of each curriculum order (overlaps training prompts)"
     adapter: results/adapters/b1_orders
     router: true
     prototypes: results/prototypes_b1_orders.npz
@@ -130,7 +130,7 @@ runs:
     max_agent_steps: 4
     replicas: 1
   B2fmteval:
-    description: one copy of every prompt format on the multi-format order adapter
+    description: "diagnostic_train_echo: one copy of every prompt format (overlaps training prompts)"
     adapter: results/adapters/b1_formats
     router: true
     prototypes: results/prototypes_b1_formats.npz
@@ -149,6 +149,7 @@ runs:
     replicas: 1
 
 export:
-  adapter: results/adapters/b1
+  # Frozen SFT baseline (see docs/SFT_BASELINE_MANIFEST.json). Historical b1 stays under paths.adapter_b1.
+  adapter: results/sft_v2/e2
   data: data/processed
   logs: results/b0_b2

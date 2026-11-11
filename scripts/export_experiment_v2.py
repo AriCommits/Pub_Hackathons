@@ -8,13 +8,12 @@ import re
 import shutil
 
 from actproto.experiments.manifest import hash_file
+from actproto.utils.secret_scan import is_forbidden_name, scan_file_for_secrets
 
 REQUIRED = {"adapter", "tokenizer", "template", "data_manifest", "fixture_manifest",
             "curriculum", "traces", "metrics", "environment_lock", "model_card"}
 OPTIONAL = {"prototype", "threshold", "private_final"}
 BANNED_COMPONENTS = {".git", ".env", ".aws", ".ssh", "__pycache__", ".cache", "cache", "caches", "logs"}
-SECRET = re.compile(r"(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})\b)")
-SECRET_FIELD = re.compile(r"(?i)[\"'](?:api[_-]?key|secret|password|access[_-]?token|authorization|credential)[\"']\s*:\s*[\"'][^\"']+[\"']")
 TEXT_SUFFIXES = {".json", ".jsonl", ".txt", ".yaml", ".yml", ".md", ".jinja", ".lock", ".py", ".toml"}
 
 
@@ -44,7 +43,7 @@ def validate_allowlist(root, manifest, *, include_private=False):
         if canonical in seen:
             raise ValueError("duplicate artifact path")
         seen.add(canonical)
-        if path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"} or path.name.lower() in {"credentials", "credentials.json", "secrets.json", "resume-token.txt"}:
+        if is_forbidden_name(Path(path.name)):
             raise ValueError("credential file not permitted")
         if path.name.lower() in {"iid.jsonl", "stress.jsonl", "test.jsonl", "final-access.jsonl"} and role != "private_final":
             raise ValueError("held-out answers must be private")
@@ -57,15 +56,9 @@ def validate_allowlist(root, manifest, *, include_private=False):
             raise ValueError(f"missing or unsafe artifact: {name}")
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or hash_file(candidate) != digest:
             raise ValueError(f"artifact hash mismatch: {name}")
-        # Scan even extensionless or binary artifacts for recognizable secrets.
-        # Chunks overlap so a token crossing a block boundary is still detected.
-        with candidate.open("rb") as file:
-            tail = b""
-            for block in iter(lambda: file.read(1024 * 1024), b""):
-                chunk = (tail + block).decode("latin-1")
-                if SECRET.search(chunk) or SECRET_FIELD.search(chunk):
-                    raise ValueError(f"credential-like material in {name}")
-                tail = (tail + block)[-512:]
+        reason = scan_file_for_secrets(candidate)
+        if reason:
+            raise ValueError(reason)
         resolved.append((item, candidate))
     by_role = {role: {PurePosixPath(item["path"]).name for item, _ in resolved if item["role"] == role}
                for role in roles}

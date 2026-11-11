@@ -72,7 +72,8 @@ def main(argv=None):
     with GpuLease(args.lease_root, 'GPU-' + detected) as lease:
         run, token = prepare_run(args.output_root, manifest)
         # The token is secret and needed to resume; never print it or commit the file.
-        (run / 'resume-token.txt').write_text(token, encoding='utf-8')
+        from actproto.utils.secret_scan import write_secret_file
+        write_secret_file(run / 'resume-token.txt', token)
         (run / 'preflight.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         outcome = train(tokenizer, encoded, config, run, evaluator, heartbeat=lease.heartbeat)
         (run / 'complete.json').write_text(json.dumps({'manifest_digest': manifest.digest,

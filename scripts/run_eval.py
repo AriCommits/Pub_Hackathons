@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run recorded-mode AuditKIT-style eval on JSONL tasks + optional trajectory dump."""
+"""Recorded-mode AuditKIT-style eval on JSONL tasks + optional trajectory dump.
+
+Live eval is ``scripts/run_trial.py`` (legacy B0–B2) or ``scripts/run_experiment_v2.py``.
+This script only scores pre-recorded trajectories.
+"""
 
 from __future__ import annotations
 

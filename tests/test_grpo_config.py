@@ -30,11 +30,11 @@ def test_checked_in_config_is_the_named_beta_zero_cpu_run():
     assert public["quantization"] is None
 
 
-E2_CONFIG = Path("actproto/configs/grpo_v2_gpu_e2.yaml")
+E2_CONFIG = Path("actproto/configs/archive/grpo_v2_gpu_e2.yaml")
 
 
 def test_e2_gpu_config_is_the_bounded_5060_run():
-    config = load_grpo_config(E2_CONFIG)
+    config = load_grpo_config(E2_CONFIG, allow_historical=True)
     assert config.schema_version == "grpo_v2_gpu"
     assert config.reference_policy == "beta_zero"
     assert config.beta == 0.0
@@ -158,7 +158,7 @@ def test_config_rejects_a_group_that_does_not_divide_the_batch(tmp_path):
         load_grpo_config(path)
 
 
-TOOLS_CONFIG = Path("actproto/configs/grpo_v2_gpu_tools.yaml")
+TOOLS_CONFIG = Path("actproto/configs/archive/grpo_v2_gpu_tools.yaml")
 
 
 def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch, tmp_path):
@@ -166,7 +166,7 @@ def test_tool_reward_config_keeps_the_first_sampling_settings(monkeypatch, tmp_p
 
     from actproto.training.rl_config import guard_tool_sampling
 
-    config = load_grpo_config(TOOLS_CONFIG)
+    config = load_grpo_config(TOOLS_CONFIG, allow_historical=True)
     assert config.output_dir == "results/rl_v2/grpo_gpu_tools"
     assert config.beta == 0.0
     assert config.learning_rate == 5.0e-6
@@ -215,7 +215,7 @@ def test_prefix_config_loads_only_the_new_directory_and_per_turn_256(tmp_path):
     assert tools["output_dir"] == "results/rl_v2/grpo_gpu_tools"
     assert "per_turn_new_tokens" not in tools
     config = load_grpo_config(PREFIX_CONFIG)
-    assert config.output_dir == "results/rl_v2/grpo_gpu_prefix"
+    assert config.output_dir == "results/rl_v2/grpo_gpu_study"
     assert config.per_turn_new_tokens == 256
     assert config.max_completion_length == 256
     assert config.beta == 0.0

@@ -1,12 +1,9 @@
-"""GRPO entry points.
+"""Rejected legacy GRPO helpers — not the trainer.
 
-The previous helpers built a metadata payload and reported success when AgentTune
-could be imported, even with an empty dataset and no call to ``trainer.train``.
-That stub is gone. ``scripts/train_grpo.py`` now uses ``grpo_run``: plan-only and
-collect-only do not optimize, and a real run fails until Plan 9 freezes the SFT
-baseline. A beta of zero is an explicit named configuration, not a silent
-substitution for the frozen SFT reference. The named GPU profile may train
-from that adapter with beta 0; that load is not a KL reference.
+Do not import this module for training. Use ``scripts/train_grpo.py`` which
+calls ``actproto.training.grpo_run``. Every function here raises
+``GrpoConfigError`` so a metadata-only or import-only path cannot look like a
+successful optimization.
 """
 from __future__ import annotations
 

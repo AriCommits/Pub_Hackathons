@@ -145,7 +145,12 @@ def _train_payload(*, global_step: int, baseline_loaded: bool, reference_model_b
 
 
 HISTORICAL_RUNS = {
-    "grpo_gpu_e2", "grpo_gpu_smoke", "grpo_cpu_smoke", "grpo_gpu_tools", "grpo_gpu_tools_r2",
+    "grpo_gpu_e2",
+    "grpo_gpu_smoke",
+    "grpo_cpu_smoke",
+    "grpo_gpu_tools",
+    "grpo_gpu_tools_r2",
+    "grpo_gpu_prefix",
 }
 TRAIN_EPISODE_DEADLINE_SECONDS = 120.0
 

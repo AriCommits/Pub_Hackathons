@@ -27,5 +27,5 @@ def labels_from_index(index: list[dict]) -> list[str]:
 
 
 def load_prototypes_npz(path: str | Path) -> dict[str, np.ndarray]:
-    data = np.load(Path(path))
+    data = np.load(Path(path), allow_pickle=False)
     return {key: np.asarray(data[key], dtype=np.float32) for key in data.files}

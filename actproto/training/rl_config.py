@@ -15,6 +15,21 @@ class GrpoConfigError(ValueError):
 GRPO_GPU_PROFILE = "grpo_v2_gpu"
 RTX_5060_TI_UUID = "134c34ef-c155-b001-4e3a-b9134b072c21"
 RTX_4060_UUID = "5b885e12-623f-268c-f07c-ee33db379969"
+_LOCAL_DEVICE_PATH = Path(__file__).resolve().parents[1] / "configs" / "local.device.yaml"
+
+
+def preferred_device_uuid() -> str:
+    """Return the expected 5060 Ti UUID, optionally overridden by local.device.yaml."""
+    if _LOCAL_DEVICE_PATH.is_file():
+        raw = yaml.safe_load(_LOCAL_DEVICE_PATH.read_text(encoding="utf-8")) or {}
+        if isinstance(raw, dict):
+            override = raw.get("device_uuid") or raw.get("rtx_5060_ti_uuid")
+            if isinstance(override, str) and override.strip():
+                text = override.strip().lower()
+                if text.startswith("gpu-"):
+                    text = text[4:]
+                return text
+    return RTX_5060_TI_UUID
 TOOL_REWARD_LEARNING_RATE = 5e-6
 E2_LORA_TARGETS = frozenset({
     "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
@@ -110,9 +125,15 @@ class GrpoV2Config:
         }
 
 
-def load_grpo_config(path: str | Path) -> GrpoV2Config:
+def load_grpo_config(path: str | Path, *, allow_historical: bool = False) -> GrpoV2Config:
     """Load a CPU or named GPU profile. A manifest path is stored, never opened."""
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    config_path = Path(path)
+    if "archive" in config_path.parts and not allow_historical:
+        raise GrpoConfigError(
+            "historical GRPO configs under configs/archive/ require allow_historical=True "
+            "(scripts/train_grpo.py --allow-historical)"
+        )
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise GrpoConfigError("GRPO config must be a mapping")
     schema = raw.get("schema_version")
@@ -154,8 +175,8 @@ def load_grpo_config(path: str | Path) -> GrpoV2Config:
         raise GrpoConfigError("per_turn_new_tokens must be 256")
     max_steps = _positive_int(raw.get("max_steps"), "max_steps")
     output_dir = _relative_output(raw.get("output_dir"))
-    if Path(output_dir).name == "grpo_gpu_prefix" and max_steps > 20:
-        raise GrpoConfigError("grpo_gpu_prefix max_steps must be at most 20")
+    if Path(output_dir).name in {"grpo_gpu_prefix", "grpo_gpu_study"} and max_steps > 20:
+        raise GrpoConfigError("prefix/study GRPO max_steps must be at most 20")
     return GrpoV2Config(
         reference_policy="beta_zero",
         beta=0.0,
@@ -211,11 +232,12 @@ def resolve_output(relative: str, root: Path) -> Path:
 def _require_5060_ti(raw: dict) -> tuple[str, str]:
     name = raw.get("device_name")
     uuid = raw.get("device_uuid")
+    expected = preferred_device_uuid()
     if not isinstance(name, str) or "RTX 5060 Ti" not in name:
         raise GrpoConfigError("device_name must identify an RTX 5060 Ti")
-    if uuid == RTX_4060_UUID:
+    if isinstance(uuid, str) and uuid.lower().removeprefix("gpu-") == RTX_4060_UUID:
         raise GrpoConfigError("the RTX 4060 cannot host this GPU profile")
-    if not isinstance(uuid, str) or uuid != RTX_5060_TI_UUID:
+    if not isinstance(uuid, str) or uuid.lower().removeprefix("gpu-") != expected:
         raise GrpoConfigError("device_uuid must be the RTX 5060 Ti")
     return name, uuid
 

@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest_proto_*/
 .mypy_cache/
 .ruff_cache/
 dist/
@@ -24,6 +25,17 @@ results/**
 adapters/
 .hf_token
 HF_TOKEN
+credentials.json
+secrets.yaml
+secrets.json
+*.pkl
+*.joblib
+.resume-token.txt
+resume-token.txt
+.aws/
+*.pem
+*.key
+actproto/configs/local.device.yaml
 .coverage
 htmlcov/
 .DS_Store

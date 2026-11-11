@@ -35,8 +35,11 @@ def evaluate_probe(clf: LogisticRegression, encoder: LabelEncoder, vectors: np.n
 
 
 def save_probe(path: str | Path, clf: LogisticRegression, encoder: LabelEncoder) -> None:
-    import pickle
+    """Persist the probe with joblib (extension should be ``.joblib``)."""
+    import joblib
 
     dest = Path(path)
+    if dest.suffix.lower() not in {".joblib", ".pkl"}:
+        dest = dest.with_suffix(".joblib")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(pickle.dumps({"clf": clf, "encoder": encoder}))
+    joblib.dump({"clf": clf, "encoder": encoder}, dest)

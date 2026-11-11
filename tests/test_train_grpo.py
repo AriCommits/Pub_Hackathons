@@ -152,7 +152,7 @@ def test_cpu_smoke_updates_only_lora_weights_and_resume_keeps_the_first_checkpoi
 
 
 GPU_CONFIG = Path("actproto/configs/grpo_v2_gpu.yaml")
-E2_CONFIG = Path("actproto/configs/grpo_v2_gpu_e2.yaml")
+E2_CONFIG = Path("actproto/configs/archive/grpo_v2_gpu_e2.yaml")
 
 
 def test_gpu_schema_does_not_enter_cpu_fit(monkeypatch):
@@ -321,7 +321,7 @@ def test_named_gpu_train_reaches_tiny_aya_only_in_the_masked_child(tmp_path, mon
         return {"mode": "train", "reference_policy": "beta_zero", "baseline_loaded": True}
 
     monkeypatch.setattr("actproto.training.grpo_run._train_tiny_aya", fake_train)
-    config = load_grpo_config(E2_CONFIG)
+    config = load_grpo_config(E2_CONFIG, allow_historical=True)
     with pytest.raises(GrpoConfigError, match="masked child"):
         run_train(config, root)
     assert "rows" not in seen
@@ -343,7 +343,7 @@ def test_gpu_child_still_rejects_a_missing_or_mismatched_adapter(tmp_path, monke
         "actproto.training.grpo_run._train_tiny_aya",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("training started")),
     )
-    config = load_grpo_config(E2_CONFIG)
+    config = load_grpo_config(E2_CONFIG, allow_historical=True)
     missing = tmp_path / "missing"
     _write_baseline(missing, {
         "frozen": True,
@@ -395,12 +395,13 @@ def test_live_train_launch_masks_only_the_child(monkeypatch):
         return 0
 
     monkeypatch.setattr("scripts.train_grpo.subprocess.call", fake_call)
-    assert main(["--train", "--live-gpu", "--config", str(E2_CONFIG)]) == 0
+    assert main(["--train", "--live-gpu", "--allow-historical", "--config", str(E2_CONFIG)]) == 0
     assert seen["env"]["CUDA_VISIBLE_DEVICES"] == "0"
     assert seen["env"]["LEXSI_RL_GPU_CHILD"] == "1"
     assert os.environ.get("CUDA_VISIBLE_DEVICES") in (None, "")
     assert "--train" in seen["cmd"]
     assert "--live-gpu" in seen["cmd"]
+    assert "--allow-historical" in seen["cmd"]
 
 
 def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
@@ -459,7 +460,7 @@ def test_loaded_policy_must_be_the_e2_lora_without_a_ref_adapter():
             named_parameters=lambda: [("base.weight", Flag(False)), ("lora_A.default", Flag(True))],
         )
 
-    config = load_grpo_config(E2_CONFIG)
+    config = load_grpo_config(E2_CONFIG, allow_historical=True)
     assert_loaded_e2_policy(model({"default": Target()}), config)
     with pytest.raises(GrpoConfigError, match="ref adapter"):
         assert_loaded_e2_policy(model({"default": Target(), "ref": Target()}), config)
@@ -637,7 +638,7 @@ def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeyp
 
     trainer_policy = PolicyModel()
     monkeypatch.setattr(grpo_run, "_sample_peft_action", fake_sample)
-    config = load_grpo_config(E2_CONFIG)
+    config = load_grpo_config(E2_CONFIG, allow_historical=True)
     assert config.temperature == pytest.approx(0.8)
     rollout = grpo_run._study_rollout("loaded-peft", tokenizer, [spec], scope, config, "grpo_gpu_tools")
     assert isinstance(rollout, AgenticRolloutAdapter)
@@ -770,7 +771,7 @@ def test_study_rollout_returns_a_completion_longer_than_the_loss_denominator(mon
         return raw, ids, [-0.2] * len(ids), False
 
     monkeypatch.setattr(grpo_run, "_sample_peft_action", fake_sample)
-    config = load_grpo_config(E2_CONFIG)
+    config = load_grpo_config(E2_CONFIG, allow_historical=True)
     assert config.max_completion_length == 256
     tokenizer = CharacterTokenizer()
     policy = ModelPolicy(SimpleNamespace(config=SimpleNamespace(max_position_embeddings=8192)), tokenizer)
@@ -985,7 +986,7 @@ def test_val_comparison_rejects_a_test_split_and_unit_tests_do_not_launch_the_sm
     assert "actproto/configs/grpo_v2_gpu_prefix.yaml" in procedure
     assert "134c34ef-c155-b001-4e3a-b9134b072c21" in procedure
     assert "5b885e12-623f-268c-f07c-ee33db379969" in procedure
-    assert "results/rl_v2/grpo_gpu_prefix" in procedure
+    assert "results/rl_v2/grpo_gpu_study" in procedure
     assert "CUDA_VISIBLE_DEVICES" in procedure
     assert "2da2899c0fd2f5ca0bffc32c2e9201e0b7bab8b1758d2fde429ff19cf50be8bd" in procedure
     assert "results/rl_v2/grpo_gpu_tools_r2" in procedure

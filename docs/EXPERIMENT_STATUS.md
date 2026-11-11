@@ -1,8 +1,10 @@
-# Experiment status (resume here)
+# Experiment status (historical run log)
+
+> **Not the live handoff.** Use [`STATUS.md`](STATUS.md) first. The 2026-11-02 lead warning below is stale: B2 finished and later SFT/GRPO work is recorded further down this file. Keep this document as a chronological log; do not treat the opening paragraph as current machine state.
 
 Last updated: 2026-11-02, ~19:56 America/Chicago. B2 live eval is still running (started 18:59). Do not start another train or eval, and do not kill the B2 processes.
 
-This file is the handoff for the first trial set (B0, B1, B2). Another agent should read it before touching the machine. Update the "Last updated" line and the checklist at the bottom whenever a step finishes or fails.
+This file began as the handoff for the first trial set (B0, B1, B2). Prefer `STATUS.md` for current commands.
 
 ## Goal
 

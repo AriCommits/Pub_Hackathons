@@ -18,5 +18,5 @@ def test_dry_run_payload_no_model():
     tasks = [t for t in generate_tasks() if t.split == "train"][:5]
     payload = build_train_payload(tasks, LoraSftConfig.load())
     assert payload["n_rows"] == 5
-    assert payload["output_dir"] == "results/adapters/b1"
+    assert payload["output_dir"] == "results/adapters/lora_run"
     assert payload["peft"]["r"] == 16

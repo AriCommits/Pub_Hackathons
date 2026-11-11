@@ -7,4 +7,4 @@
 - Public code: this repository (`lexsi/`).
 - Hugging Face artifacts: adapters under `results/adapters/b1`, dataset JSONL under `data/processed`, logs under `results/b0_b2`. Upload with `python scripts/export_hf_artifacts.py --repo <id>` after a real train.
 - Write-up: `docs/METHOD.md` (metrics, rationale, negative-result language).
-- Deadline: 14 November 2026. Stretch (B3 steering, B4 alignment loss, GRPO) is post-MVP.
+- Deadline: 14 November 2026. Stretch (B3 steering, B4 alignment loss) remains optional. GRPO training is implemented via `scripts/train_grpo.py` (see `STATUS.md`); tool-reward runs to date are negative results, not the frozen SFT baseline.

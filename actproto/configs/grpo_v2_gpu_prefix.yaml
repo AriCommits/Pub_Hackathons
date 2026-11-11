@@ -19,6 +19,7 @@ device_name: NVIDIA GeForce RTX 5060 Ti
 device_uuid: 134c34ef-c155-b001-4e3a-b9134b072c21
 max_steps: 20
 seed: 42
-output_dir: results/rl_v2/grpo_gpu_prefix
+# Prior run directory results/rl_v2/grpo_gpu_prefix is historical / protected.
+output_dir: results/rl_v2/grpo_gpu_study
 baseline_manifest: docs/SFT_BASELINE_MANIFEST.json
 train_manifest: data/benchmarks/tooluse_v2/manifest.json

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from actproto.training.rl_config import RTX_4060_UUID, RTX_5060_TI_UUID
+from actproto.training.rl_config import RTX_4060_UUID, preferred_device_uuid
 
 
 class DeviceSelectionError(ValueError):
@@ -27,7 +27,8 @@ def normalize_uuid(value: object) -> str:
 
 def select_5060_ti(devices: list[DeviceRecord]) -> int:
     """Return the record index whose UUID is the RTX 5060 Ti."""
-    matches = [device for device in devices if normalize_uuid(device.uuid) == RTX_5060_TI_UUID]
+    expected = preferred_device_uuid()
+    matches = [device for device in devices if normalize_uuid(device.uuid) == expected]
     if len(matches) != 1:
         raise DeviceSelectionError("RTX 5060 Ti UUID is missing")
     chosen = matches[0]

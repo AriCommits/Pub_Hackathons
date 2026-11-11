@@ -14,6 +14,7 @@ from actproto.activations.prototypes import fit_prototypes, labels_from_index  #
 from actproto.activations.similarity import cosine_scores, rank_scores  # noqa: E402
 from actproto.activations.store import read_dump  # noqa: E402
 from actproto.activations.threshold import choose_threshold  # noqa: E402
+from actproto.utils.paths import PathEscapeError, contain_under  # noqa: E402
 from scripts._cli import add_trial_argument, trial_from_args  # noqa: E402
 
 
@@ -36,7 +37,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--metrics", default=None, help="Output metrics json. Defaults to prototype_metrics.json.")
     args = parser.parse_args(argv)
     trial = trial_from_args(args)
-    dump = Path(args.dump) if args.dump else trial.resolve(trial.paths.activations_dump)
+    try:
+        dump = (
+            contain_under(trial.root, args.dump, label="dump")
+            if args.dump
+            else trial.resolve(trial.paths.activations_dump)
+        )
+    except PathEscapeError as exc:
+        raise SystemExit(str(exc)) from exc
     if dump is None or not dump.exists():
         raise SystemExit(f"activation dump not found: {dump}")
     vectors, index = read_dump(dump)
@@ -51,8 +59,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     out_dir = trial.resolve(trial.paths.prototypes_dir)
     assert out_dir is not None
-    proto_path = Path(args.prototypes) if args.prototypes else out_dir / "prototypes.npz"
-    metrics_path = Path(args.metrics) if args.metrics else trial.resolve(trial.paths.prototype_metrics())
+    try:
+        proto_path = (
+            contain_under(trial.root, args.prototypes, label="prototypes")
+            if args.prototypes
+            else out_dir / "prototypes.npz"
+        )
+        metrics_path = (
+            contain_under(trial.root, args.metrics, label="metrics")
+            if args.metrics
+            else trial.resolve(trial.paths.prototype_metrics())
+        )
+    except PathEscapeError as exc:
+        raise SystemExit(str(exc)) from exc
     assert metrics_path is not None
     proto_path.parent.mkdir(parents=True, exist_ok=True)
     metrics_path.parent.mkdir(parents=True, exist_ok=True)

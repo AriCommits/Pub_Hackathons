@@ -23,8 +23,12 @@ def test_formats_flag_appends_every_prompt_layout(capsys):
     assert payload["output_dir"].endswith("b1_formats")
 
 
-def test_plan_only_default_stays_on_b1(capsys):
+def test_plan_only_default_uses_lora_run_not_historical_b1(capsys):
     assert train_lora.main(["--plan-only"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["output_dir"].endswith("b1")
-    assert not payload["output_dir"].endswith("b1_assistant_only")
+    assert payload["output_dir"].endswith("lora_run")
+    assert not payload["output_dir"].endswith("adapters/b1")
+
+
+def test_refuses_training_into_historical_b1():
+    assert train_lora.main(["--plan-only", "--output-dir", "results/adapters/b1"]) == 1

@@ -33,11 +33,35 @@ def _eval(node: ast.AST) -> float:
     raise ValueError("unsupported expression")
 
 
+_MAX_EXPRESSION_CHARS = 256
+_MAX_AST_NODES = 64
+
+
+def _count_nodes(node: ast.AST) -> int:
+    return sum(1 for _ in ast.walk(node))
+
+
 def calculator(expression: str) -> dict[str, Any]:
     if not isinstance(expression, str) or not expression.strip():
         return {"ok": False, "error": {"type": "invalid_expression", "message": "expression must be a non-empty string"}}
+    if len(expression) > _MAX_EXPRESSION_CHARS:
+        return {
+            "ok": False,
+            "error": {
+                "type": "invalid_expression",
+                "message": f"expression exceeds {_MAX_EXPRESSION_CHARS} characters",
+            },
+        }
     try:
         tree = ast.parse(expression, mode="eval")
+        if _count_nodes(tree) > _MAX_AST_NODES:
+            return {
+                "ok": False,
+                "error": {
+                    "type": "invalid_expression",
+                    "message": f"expression exceeds {_MAX_AST_NODES} AST nodes",
+                },
+            }
         value = _eval(tree)
     except Exception as exc:  # noqa: BLE001 — surface as tool error
         return {"ok": False, "error": {"type": "invalid_expression", "message": str(exc)}}

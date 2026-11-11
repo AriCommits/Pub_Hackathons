@@ -141,7 +141,7 @@ def execute(epochs):
     candidates = []
     base_run = _eval("ebase", env, uuid)
     candidates.append(_candidate(base_run, "ebase", groups))
-    legacy = Path(r"C:\Users\arian\Github\Hackathons\lexsi\results\adapters\b1_assistant_only")
+    legacy = ROOT / "results" / "adapters" / "b1_assistant_only"
     if (legacy / "adapter_config.json").is_file():
         candidates.append(_candidate(_eval("e0", env, uuid, str(legacy)), "e0", groups))
     else:

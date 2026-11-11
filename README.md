@@ -6,7 +6,7 @@ The system reads residual-stream activations immediately before tool choice, bui
 
 Ordinary LoRA tool-use fine-tuning is the baseline. A linear probe on the same activations is the representation baseline. The headline metric is **verified task success**, not claimed success.
 
-Live B0–B2 progress, environment notes, and the resume checklist are in [`docs/EXPERIMENT_STATUS.md`](docs/EXPERIMENT_STATUS.md). Update that file as the run proceeds.
+Current handoff: [`docs/STATUS.md`](docs/STATUS.md). Historical B0–B2 / SFT / GRPO run log: [`docs/EXPERIMENT_STATUS.md`](docs/EXPERIMENT_STATUS.md).
 
 ## Setup
 
@@ -19,7 +19,18 @@ python -m pip install -e ".[train]"   # GPU train / live infer
 huggingface-cli login                   # HF_TOKEN for Tiny Aya
 ```
 
-GRPO uses two more interpreters, both outside this supervised `.venv`. The CPU AgentTune environment runs the already-verified mechanics smoke. A separate CUDA environment (torch `2.11.0+cu128`, AgentTune 1.1.3, TRL 1.7.1) is the one for new GPU GRPO work. The recipe is `requirements-rl-gpu.txt`; the freeze is `requirements-rl-gpu.lock`. Paths and the device-print command are in [`docs/RL_GPU_ENV.md`](docs/RL_GPU_ENV.md). `actproto/configs/grpo_v2.yaml` stays the CPU profile (`use_cpu: true`). `actproto/configs/grpo_v2_gpu.yaml` is the only profile that may set `use_cpu: false`, and only for the RTX 5060 Ti UUID. `create_trainer` accepts that flag only with `gpu_profile="grpo_v2_gpu"` and still rejects vLLM. `scripts/check_rl_gpu_env.py`, run in the CUDA environment with `CUDA_VISIBLE_DEVICES` unset, selects the 5060 Ti by UUID. `scripts/train_grpo.py --smoke --live-gpu` is the gated CUDA fixture smoke and uses `actproto/configs/grpo_v2_gpu.yaml`. Without `--live-gpu` that profile does not train. The tool-reward study config is `actproto/configs/grpo_v2_gpu_tools.yaml` (`results/rl_v2/grpo_gpu_tools`, temperature 0.8, top-p 0.95, two generations, beta 0, learning rate `5e-6`, vLLM off). The study sampler passes the named `default` chat template and allows 256 new tokens on each sampled turn; `max_completion_length` stays the loss denominator. `actproto/configs/reward_v2.yaml` documents `bounded_prefix_v1` (failure-only prefix credit, ceiling 0.30) and is not a live override. The trainer wrapper scores `bounded_prefix_v1`. `score_executed_session` stays on `bounded_shaped_v1`. A fully tied group is redrawn once and then skipped; `num_generations` stays 2 because a larger group of identical rewards is still advantage 0. The prefix-reward config is `actproto/configs/grpo_v2_gpu_prefix.yaml` (`results/rl_v2/grpo_gpu_prefix`, per-turn 256, beta 0). `grpo_gpu_tools` and `grpo_gpu_tools_r2` stay historical negative results. The 20-step tool-reward runs are negative results. The 200/200 macro 1.0 is frozen SFT e2, not GRPO. `grpo_v2_gpu_e2.yaml` stays the record of the earlier 20-step run. `--train --live-gpu` on a `grpo_v2_gpu` config is the masked-child Tiny Aya run. It executes train-task tools in process, refuses the RTX 4060, and must write a new directory under `results/rl_v2` rather than `grpo_gpu_e2`, `grpo_gpu_smoke`, or `grpo_cpu_smoke`. The CPU profile still does not optimize. `scripts/measure_rl_gpu_memory.py` loads Tiny Aya bf16 on the 5060 Ti and writes `results/rl_v2/gpu_memory/tiny_aya_bf16.json`. It does not train or attach an adapter. Do not point that environment at `C:\Python314\python.exe` or reinstall the supervised venv.
+### GRPO (three interpreters)
+
+GRPO needs the supervised `.venv` plus two more interpreters (CPU AgentTune smoke; CUDA torch `2.11.0+cu128` / AgentTune 1.1.3 / TRL 1.7.1). Recipe: `requirements-rl-gpu.txt` / `requirements-rl-gpu.lock`. Details: [`docs/RL_GPU_ENV.md`](docs/RL_GPU_ENV.md), [`docs/STATUS.md`](docs/STATUS.md).
+
+| Role | Config | Notes |
+| --- | --- | --- |
+| CPU / plan | `actproto/configs/grpo_v2.yaml` | `use_cpu: true`; default `--config` |
+| GPU smoke | `actproto/configs/grpo_v2_gpu.yaml` | `--smoke --live-gpu`; 5060 Ti UUID only |
+| GPU study | `actproto/configs/grpo_v2_gpu_prefix.yaml` | `--train --live-gpu` with this config; writes `results/rl_v2/grpo_gpu_study` |
+| Historical | `actproto/configs/archive/*` | e2 / tools YAMLs; require `--allow-historical` |
+
+`--train --live-gpu` refuses the CPU default config. Reward constants live in code; `actproto/configs/reference/reward_v2.yaml` is documentation only. Tool-reward historical dirs (`grpo_gpu_tools`, `grpo_gpu_prefix`, …) are protected. The 200/200 macro 1.0 is frozen SFT e2, not GRPO.
 
 ## Trial config (paths + B0–B2)
 

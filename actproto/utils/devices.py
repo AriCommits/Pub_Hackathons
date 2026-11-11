@@ -1,8 +1,9 @@
-"""Pick local CUDA devices. PyTorch index 0 is not always the larger card."""
+"""Pick local CUDA devices. Prefer the RTX 5060 Ti UUID; never trust memory size alone."""
 
 from __future__ import annotations
 
 import os
+import subprocess
 
 
 def _cuda_indices() -> list[int]:
@@ -22,15 +23,82 @@ def _cuda_indices() -> list[int]:
 
 
 def preferred_device() -> str:
-    """Device string for a single replica. Largest allowed GPU, else CPU."""
+    """Device string for a single replica. Prefer the 5060 Ti UUID among visible GPUs."""
     import torch
+
+    from actproto.training.rl_config import preferred_device_uuid
+    from actproto.training.rl_device import DeviceRecord, DeviceSelectionError, normalize_uuid, select_5060_ti
 
     indices = _cuda_indices()
     if not indices:
         return "cpu"
-    best = max(indices, key=lambda i: torch.cuda.get_device_properties(i).total_memory)
-    return f"cuda:{best}"
+    records = []
+    for index in indices:
+        props = torch.cuda.get_device_properties(index)
+        records.append(
+            DeviceRecord(index, props.name, normalize_uuid(props.uuid), int(props.total_memory))
+        )
+    try:
+        return f"cuda:{select_5060_ti(records)}"
+    except DeviceSelectionError:
+        if len(indices) == 1:
+            return f"cuda:{indices[0]}"
+        raise DeviceSelectionError(
+            f"RTX 5060 Ti UUID {preferred_device_uuid()} is not among visible devices"
+        ) from None
 
+
+def pin_5060_ti_visible() -> str | None:
+    """Set CUDA_VISIBLE_DEVICES to the nvidia-smi ordinal for the RTX 5060 Ti.
+
+    Returns the ordinal string, or None when CUDA is unavailable. Raises if the
+    UUID cannot be selected. Leaves an already-set CUDA_VISIBLE_DEVICES alone
+    only after verifying the visible torch device still matches the UUID.
+    """
+    from actproto.training.rl_config import preferred_device_uuid
+    from actproto.training.rl_device import (
+        DeviceRecord,
+        DeviceSelectionError,
+        normalize_uuid,
+        ordinal_from_nvidia_rows,
+        parse_nvidia_gpu_csv,
+        select_5060_ti,
+    )
+
+    existing = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if existing is not None and existing != "":
+        import torch
+
+        if not torch.cuda.is_available():
+            raise DeviceSelectionError("CUDA_VISIBLE_DEVICES is set but CUDA is unavailable")
+        records = []
+        for index in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(index)
+            records.append(
+                DeviceRecord(index, props.name, normalize_uuid(props.uuid), int(props.total_memory))
+            )
+        select_5060_ti(records)
+        return existing
+
+    try:
+        completed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        # No nvidia-smi: allow CPU-only hosts to continue without pinning.
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        raise DeviceSelectionError("nvidia-smi is required to pin the RTX 5060 Ti") from exc
+
+    rows = parse_nvidia_gpu_csv(completed.stdout)
+    ordinal = ordinal_from_nvidia_rows(rows, preferred_device_uuid())
+    os.environ["CUDA_VISIBLE_DEVICES"] = ordinal
+    return ordinal
 
 def replica_plan(
     *,
@@ -56,7 +124,6 @@ def replica_plan(
         plan.extend([str(index)] * count)
     if plan:
         return plan
-    # Budget said nothing fits; still try the largest card once.
     only = preferred_device()
     if only.startswith("cuda:"):
         return [only.split(":", 1)[1]]

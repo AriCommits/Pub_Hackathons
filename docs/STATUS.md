@@ -35,6 +35,7 @@ python scripts/train_grpo.py --train --live-gpu --config actproto/configs/grpo_v
 
 - [`plan_14/OVERVIEW.md`](plan_14/OVERVIEW.md) — security + cleanliness audit fixes (C1–C7 implemented on the audit branch)
 - Optional host UUID override: copy `actproto/configs/local.device.yaml.example` → `local.device.yaml` (gitignored)
+- Colab / laptop GRPO diagnostics (not study evidence): [`COLAB_ROLLOUT_DIAGNOSTICS.md`](COLAB_ROLLOUT_DIAGNOSTICS.md), `scripts/diagnose_grpo_rollouts.py`, `notebooks/colab_grpo_rollout_diagnostics.ipynb`. Use `--allow-any-gpu` / `LEXSI_ALLOW_ANY_GPU=1` only for dumps; UUID pin fails closed otherwise.
 
 ## Docs map
 

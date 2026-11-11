@@ -488,16 +488,24 @@ def _train_tiny_aya(
     from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 
     from actproto.integrations.agenttune_backend import create_trainer
-    from actproto.training.rl_device import DeviceRecord, normalize_uuid, select_5060_ti
+    from actproto.training.rl_device import (
+        DIAGNOSTIC_GPU_WARNING,
+        DeviceRecord,
+        allow_any_gpu_enabled,
+        normalize_uuid,
+        select_cuda_device,
+    )
 
     records = []
     for index in range(torch.cuda.device_count()):
         props = torch.cuda.get_device_properties(index)
         records.append(DeviceRecord(index, props.name, normalize_uuid(props.uuid), int(props.total_memory)))
-    chosen_index = select_5060_ti(records)
+    chosen_index = select_cuda_device(records)
     chosen = next(record for record in records if record.index == chosen_index)
     device = torch.device("cuda", chosen.index)
     torch.cuda.set_device(device)
+    if allow_any_gpu_enabled():
+        print(DIAGNOSTIC_GPU_WARNING, flush=True)
     print(f"device_uuid={chosen.uuid} device_name={chosen.name}", flush=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     baseline_loaded = False
@@ -914,14 +922,22 @@ def _gpu_attempt(config: GrpoV2Config, output_dir: Path, *, max_steps: int, bf16
     from transformers import AutoTokenizer, GPT2Config, GPT2LMHeadModel, TrainerCallback
 
     from actproto.integrations.agenttune_backend import AgenticRolloutAdapter, create_trainer
-    from actproto.training.rl_device import DeviceRecord, normalize_uuid, select_5060_ti
+    from actproto.training.rl_device import (
+        DIAGNOSTIC_GPU_WARNING,
+        DeviceRecord,
+        allow_any_gpu_enabled,
+        normalize_uuid,
+        select_cuda_device,
+    )
 
     records = []
     for index in range(torch.cuda.device_count()):
         props = torch.cuda.get_device_properties(index)
         records.append(DeviceRecord(index, props.name, normalize_uuid(props.uuid), int(props.total_memory)))
-    chosen_index = select_5060_ti(records)
+    chosen_index = select_cuda_device(records)
     chosen = next(record for record in records if record.index == chosen_index)
+    if allow_any_gpu_enabled():
+        print(DIAGNOSTIC_GPU_WARNING, flush=True)
     torch.cuda.set_device(chosen.index)
 
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -2,8 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 
 from actproto.training.rl_config import RTX_4060_UUID, preferred_device_uuid
+
+ALLOW_ANY_GPU_ENV = "LEXSI_ALLOW_ANY_GPU"
+DIAGNOSTIC_GPU_WARNING = (
+    "DIAGNOSTIC-ONLY: LEXSI_ALLOW_ANY_GPU / --allow-any-gpu bypasses the RTX 5060 Ti "
+    "UUID pin. Do not use this for claimed study runs or submission evidence."
+)
 
 
 class DeviceSelectionError(ValueError):
@@ -25,6 +32,15 @@ def normalize_uuid(value: object) -> str:
     return text
 
 
+def allow_any_gpu_enabled(explicit: bool | None = None) -> bool:
+    """True when diagnostic-only any-GPU override is active."""
+    if explicit is True:
+        return True
+    if explicit is False:
+        return False
+    return os.environ.get(ALLOW_ANY_GPU_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
 def select_5060_ti(devices: list[DeviceRecord]) -> int:
     """Return the record index whose UUID is the RTX 5060 Ti."""
     expected = preferred_device_uuid()
@@ -37,6 +53,24 @@ def select_5060_ti(devices: list[DeviceRecord]) -> int:
     if "RTX 5060 Ti" not in chosen.name:
         raise DeviceSelectionError("chosen device name does not identify an RTX 5060 Ti")
     return chosen.index
+
+
+def select_cuda_device(devices: list[DeviceRecord], *, allow_any_gpu: bool | None = None) -> int:
+    """Select the pinned 5060 Ti, or any visible GPU when the diagnostic override is on.
+
+    Without the override this fails closed when the lab UUID is absent (Colab, laptop).
+    """
+    try:
+        return select_5060_ti(devices)
+    except DeviceSelectionError:
+        if not allow_any_gpu_enabled(allow_any_gpu):
+            raise DeviceSelectionError(
+                "RTX 5060 Ti UUID is missing; pass --allow-any-gpu or set "
+                f"{ALLOW_ANY_GPU_ENV}=1 for diagnostic-only Colab/laptop runs"
+            ) from None
+        if not devices:
+            raise DeviceSelectionError("no CUDA devices are visible") from None
+        return devices[0].index
 
 
 def ordinal_from_nvidia_rows(rows: list[tuple[str, str]], uuid: str) -> str:

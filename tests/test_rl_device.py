@@ -42,6 +42,21 @@ def test_matching_uuid_with_the_wrong_name_is_rejected():
         select_5060_ti(devices)
 
 
+def test_colab_style_t4_fails_closed_without_allow_any_gpu():
+    from actproto.training.rl_device import select_cuda_device
+
+    devices = [DeviceRecord(0, "Tesla T4", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", 16_000_000_000)]
+    with pytest.raises(DeviceSelectionError, match="allow-any-gpu"):
+        select_cuda_device(devices, allow_any_gpu=False)
+
+
+def test_colab_style_t4_accepted_with_allow_any_gpu():
+    from actproto.training.rl_device import select_cuda_device
+
+    devices = [DeviceRecord(0, "Tesla T4", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", 16_000_000_000)]
+    assert select_cuda_device(devices, allow_any_gpu=True) == 0
+
+
 def test_parent_cuda_visible_devices_exits_nonzero_without_changing_parent():
     assert os.environ.get("CUDA_VISIBLE_DEVICES") in (None, "")
     env = os.environ.copy()

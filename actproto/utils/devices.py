@@ -27,7 +27,13 @@ def preferred_device() -> str:
     import torch
 
     from actproto.training.rl_config import preferred_device_uuid
-    from actproto.training.rl_device import DeviceRecord, DeviceSelectionError, normalize_uuid, select_5060_ti
+    from actproto.training.rl_device import (
+        DeviceRecord,
+        DeviceSelectionError,
+        allow_any_gpu_enabled,
+        normalize_uuid,
+        select_cuda_device,
+    )
 
     indices = _cuda_indices()
     if not indices:
@@ -39,12 +45,14 @@ def preferred_device() -> str:
             DeviceRecord(index, props.name, normalize_uuid(props.uuid), int(props.total_memory))
         )
     try:
-        return f"cuda:{select_5060_ti(records)}"
+        return f"cuda:{select_cuda_device(records)}"
     except DeviceSelectionError:
-        if len(indices) == 1:
+        if len(indices) == 1 and not allow_any_gpu_enabled():
+            # Historical single-GPU hosts (not the dual-card lab pin) keep working.
             return f"cuda:{indices[0]}"
         raise DeviceSelectionError(
-            f"RTX 5060 Ti UUID {preferred_device_uuid()} is not among visible devices"
+            f"RTX 5060 Ti UUID {preferred_device_uuid()} is not among visible devices; "
+            "pass --allow-any-gpu / LEXSI_ALLOW_ANY_GPU=1 for diagnostic-only Colab runs"
         ) from None
 
 

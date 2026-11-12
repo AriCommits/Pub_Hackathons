@@ -37,8 +37,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="permit loading configs under actproto/configs/archive/",
     )
+    parser.add_argument(
+        "--allow-any-gpu",
+        action="store_true",
+        help="DIAGNOSTIC-ONLY: bypass the RTX 5060 Ti UUID pin (Colab / non-lab GPUs)",
+    )
     args = parser.parse_args(argv)
     try:
+        if args.allow_any_gpu:
+            from actproto.training.rl_device import ALLOW_ANY_GPU_ENV, DIAGNOSTIC_GPU_WARNING
+
+            os.environ[ALLOW_ANY_GPU_ENV] = "1"
+            print(DIAGNOSTIC_GPU_WARNING, file=sys.stderr)
         if args.train and args.live_gpu and args.config.resolve() == CONFIG.resolve():
             raise GrpoConfigError(
                 "--train --live-gpu requires an explicit GPU --config "
@@ -60,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
                     payload = run_train(config, ROOT, output_dir=output, max_steps=steps)
                 else:
                     forwarded = list(argv) if argv is not None else sys.argv[1:]
-                    return launch_gpu_smoke(forwarded)
+                    return launch_gpu_smoke(forwarded, allow_any_gpu=args.allow_any_gpu)
             else:
                 if args.live_gpu:
                     raise GrpoConfigError("--live-gpu applies only to the grpo_v2_gpu profile")
@@ -77,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
                 payload = run_gpu_smoke(config, ROOT, output, max_steps=steps)
             else:
                 forwarded = list(argv) if argv is not None else sys.argv[1:]
-                return launch_gpu_smoke(forwarded)
+                return launch_gpu_smoke(forwarded, allow_any_gpu=args.allow_any_gpu)
         else:
             if args.live_gpu:
                 raise GrpoConfigError("--live-gpu applies only to the grpo_v2_gpu profile")
@@ -95,15 +105,23 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def launch_gpu_smoke(argv: list[str]) -> int:
+def launch_gpu_smoke(argv: list[str], *, allow_any_gpu: bool = False) -> int:
     """Start smoke or training in a child whose only visible GPU is the 5060 Ti."""
+    from actproto.training.rl_device import ALLOW_ANY_GPU_ENV, DIAGNOSTIC_GPU_WARNING, allow_any_gpu_enabled
+
+    env = os.environ.copy()
+    env["LEXSI_RL_GPU_CHILD"] = "1"
+    if allow_any_gpu or allow_any_gpu_enabled():
+        env[ALLOW_ANY_GPU_ENV] = "1"
+        print(DIAGNOSTIC_GPU_WARNING, file=sys.stderr)
+        if not env.get("CUDA_VISIBLE_DEVICES"):
+            env["CUDA_VISIBLE_DEVICES"] = "0"
+        return subprocess.call([sys.executable, str(Path(__file__).resolve()), *argv], env=env)
     if os.environ.get("CUDA_VISIBLE_DEVICES"):
         raise GrpoConfigError("CUDA_VISIBLE_DEVICES is already set")
     assert_5060_idle()
     ordinal = visible_ordinal_for_5060()
-    env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = ordinal
-    env["LEXSI_RL_GPU_CHILD"] = "1"
     return subprocess.call([sys.executable, str(Path(__file__).resolve()), *argv], env=env)
 
 

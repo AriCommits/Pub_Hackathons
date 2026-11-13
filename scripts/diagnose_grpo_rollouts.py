@@ -7,7 +7,9 @@ CPU modes:
   --explain-reward       document why -0.1 means one invalid attempt / k=0
 
 GPU modes (Tiny Aya + optional e2 adapter; requires --allow-any-gpu on Colab):
-  --live-rollouts PATH   sample 3–4 real policy rollouts and dump ledger fields
+  --live-rollouts        sample real policy rollouts and dump ledger fields
+  --manifest PATH        use sealed tooluse_v2 train tasks (GRPO train set)
+  --task-ids id1,id2     optional explicit subset; else stratified sample
   --truncation-stats     summarize token-cap / completion_reason from those dumps
 
 The RTX 5060 Ti UUID pin fails closed on Colab. Pass --allow-any-gpu (or
@@ -35,6 +37,8 @@ from actproto.training.rollout_diagnostics import (  # noqa: E402
     fixture_success_policy,
     prompt_diff_as_dict,
     rollout_dump_as_dict,
+    select_manifest_tasks,
+    summarize_rollout_reasons,
     truncation_stat_row,
 )
 from actproto.training.rl_device import (  # noqa: E402
@@ -139,6 +143,7 @@ def run_fixture_rollouts(count: int = 4) -> dict:
         ),
         "rollouts": [rollout_dump_as_dict(d) for d in dumps],
         "truncation_stats": [truncation_stat_row(d) for d in dumps],
+        "summary": summarize_rollout_reasons(dumps),
         "reward_legend": explain_minus_point_one(),
     }
 
@@ -166,6 +171,22 @@ def _resolve_device(*, allow_any_gpu: bool):
     return device
 
 
+def _load_manifest_tasks(
+    manifest: Path,
+    *,
+    count: int,
+    seed: int,
+    task_ids: list[str] | None,
+):
+    from actproto.training.rl_dataset import load_scoped_train_manifest
+
+    if not manifest.is_file():
+        raise SystemExit(f"train manifest not found: {manifest}")
+    scope, tasks = load_scoped_train_manifest(manifest)
+    selected = select_manifest_tasks(tasks, count=count, seed=seed, task_ids=task_ids)
+    return scope, selected
+
+
 def run_live_rollouts(
     *,
     adapter: Path | None,
@@ -175,6 +196,9 @@ def run_live_rollouts(
     top_p: float,
     max_new_tokens: int,
     output: Path | None,
+    manifest: Path | None,
+    seed: int,
+    task_ids: list[str] | None,
 ) -> dict:
     import torch
     from peft import PeftModel
@@ -199,18 +223,27 @@ def run_live_rollouts(
         model = model.to(device)
     model.eval()
     template = selected_template(tokenizer, "default")
-    task = demo_task()
-    # Bind fixture ids to the loaded model's expected env for ToolSession checks.
-    # demo_task uses env/hash; replace with a live scoped calculator env matching task.
-    scope = _fake_scope(task)
 
-    def policy_factory(seed: int):
+    if manifest is not None:
+        scope, tasks = _load_manifest_tasks(
+            manifest, count=count, seed=seed, task_ids=task_ids,
+        )
+        env_factory = lambda: scope
+        task_source = str(manifest)
+    else:
+        task = demo_task()
+        tasks = [task]
+        scope = _fake_scope(task)
+        env_factory = lambda: scope
+        task_source = "demo_task"
+
+    def policy_factory(seed_value: int):
         seeded = False
 
         def policy(prompt_ids, remaining):
             nonlocal seeded
             if not seeded:
-                torch.manual_seed(int(seed) % (2 ** 31))
+                torch.manual_seed(int(seed_value) % (2 ** 31))
                 seeded = True
             text, token_ids, logprobs, truncated = _sample_peft_action(
                 model, tokenizer, prompt_ids,
@@ -221,22 +254,44 @@ def run_live_rollouts(
         return policy
 
     dumps = []
-    for index in range(max(3, min(count, 4))):
+    # One rollout per selected task (manifest), or count repeats of the demo task.
+    if manifest is not None:
+        schedule = list(enumerate(tasks))
+    else:
+        schedule = [(index, tasks[0]) for index in range(max(3, min(count, 4)))]
+
+    for index, task in schedule:
+        print(
+            f"rollout {index + 1}/{len(schedule)} task_id={task.task_id}",
+            file=sys.stderr,
+            flush=True,
+        )
         dump = dump_behavior_rollout(
             task,
             tokenizer=tokenizer,
-            policy=policy_factory(42 + index),
-            environment_factory=lambda: scope,
+            policy=policy_factory(seed + index),
+            environment_factory=env_factory,
             max_generated_tokens=max_new_tokens,
-            deadline_seconds=120.0,
+            deadline_seconds=180.0,
             chat_template=template,
         )
         dumps.append(dump)
+        print(
+            f"  reason={dump.completion_reason} reward={dump.ledger.get('reward')} "
+            f"invalid={dump.ledger.get('invalid_attempts')} tokens={dump.completion_token_count}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    summary = summarize_rollout_reasons(dumps)
     payload = {
         "mode": "live_rollouts",
         "gpu_required": True,
         "allow_any_gpu": bool(allow_any_gpu or allow_any_gpu_enabled()),
         "adapter": str(adapter) if adapter else None,
+        "manifest": task_source,
+        "seed": seed,
+        "task_ids": [task.task_id for task in (tasks if manifest is not None else [tasks[0]] * len(dumps))],
         "model_id": PINNED_MODEL_ID,
         "revision": PINNED_REVISION,
         "temperature": temperature,
@@ -245,13 +300,32 @@ def run_live_rollouts(
         "episode_kind": "multi_turn_behavior_tool_rollout",
         "rollouts": [rollout_dump_as_dict(d) for d in dumps],
         "truncation_stats": [truncation_stat_row(d) for d in dumps],
+        "summary": summary,
         "reward_legend": explain_minus_point_one(),
-        "prompt_diff": run_prompt_diff(task),
+        "prompt_diff": run_prompt_diff(tasks[0]),
     }
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         payload["wrote"] = str(output)
+        summary_path = output.with_name(output.stem + "_summary.json")
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "summary": summary,
+                    "task_ids": payload["task_ids"],
+                    "manifest": task_source,
+                    "adapter": payload["adapter"],
+                    "temperature": temperature,
+                    "top_p": top_p,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        payload["wrote_summary"] = str(summary_path)
     return payload
 
 
@@ -263,6 +337,18 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--explain-reward", action="store_true")
     mode.add_argument("--live-rollouts", action="store_true")
     parser.add_argument("--adapter", type=Path, help="local e2 checkpoint dir (PEFT adapter)")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="tooluse_v2 manifest.json (GRPO train_manifest); samples train tasks",
+    )
+    parser.add_argument(
+        "--task-ids",
+        type=str,
+        default="",
+        help="comma-separated task ids (optional; otherwise stratified sample)",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="sampling seed for task selection / generate")
     parser.add_argument("--count", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top-p", type=float, default=0.95)
@@ -278,8 +364,16 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[ALLOW_ANY_GPU_ENV] = "1"
         print(DIAGNOSTIC_GPU_WARNING, file=sys.stderr)
 
+    task_ids = [part.strip() for part in args.task_ids.split(",") if part.strip()] or None
+
     if args.prompt_diff:
-        payload = run_prompt_diff(demo_task())
+        if args.manifest is not None:
+            _scope, tasks = _load_manifest_tasks(
+                args.manifest, count=1, seed=args.seed, task_ids=task_ids,
+            )
+            payload = run_prompt_diff(tasks[0])
+        else:
+            payload = run_prompt_diff(demo_task())
     elif args.explain_reward:
         payload = explain_minus_point_one()
     elif args.fixture_rollouts:
@@ -293,6 +387,9 @@ def main(argv: list[str] | None = None) -> int:
             top_p=args.top_p,
             max_new_tokens=args.max_new_tokens,
             output=args.output,
+            manifest=args.manifest,
+            seed=args.seed,
+            task_ids=task_ids,
         )
     if args.output and not args.live_rollouts:
         args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -274,6 +274,66 @@ def fixture_parse_error_policy(tokenizer: Any) -> Callable:
     return policy
 
 
+
+def select_manifest_tasks(
+    tasks: list[TaskSpec],
+    *,
+    count: int,
+    seed: int = 42,
+    task_ids: list[str] | None = None,
+) -> list[TaskSpec]:
+    """Pick train tasks for live dumps. Prefer explicit IDs; else stratified sample by depth."""
+    if not tasks:
+        raise ValueError("manifest has no train tasks")
+    by_id = {task.task_id: task for task in tasks}
+    if task_ids:
+        missing = [tid for tid in task_ids if tid not in by_id]
+        if missing:
+            raise ValueError(f"unknown task ids: {', '.join(missing[:5])}")
+        return [by_id[tid] for tid in task_ids]
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    # Stable shuffle so Colab / lab dumps are comparable.
+    ordered = sorted(tasks, key=lambda task: task.task_id)
+    import random
+
+    rng = random.Random(int(seed))
+    rng.shuffle(ordered)
+    # Prefer a mix of depths when available (single-tool + multi-hop).
+    buckets: dict[int, list[TaskSpec]] = {}
+    for task in ordered:
+        depth = len(task.tool_dependencies)
+        buckets.setdefault(depth, []).append(task)
+    picked: list[TaskSpec] = []
+    depths = sorted(buckets)
+    while len(picked) < count and any(buckets.values()):
+        for depth in depths:
+            if len(picked) >= count:
+                break
+            bucket = buckets.get(depth) or []
+            if bucket:
+                picked.append(bucket.pop(0))
+    return picked[:count]
+
+
+def summarize_rollout_reasons(dumps: list[RolloutDump]) -> dict[str, Any]:
+    """Histogram completion_reason / reward for reviewer paste-back."""
+    from collections import Counter
+
+    reasons = Counter(dump.completion_reason for dump in dumps)
+    rewards = Counter(str(dump.ledger.get("reward")) for dump in dumps)
+    invalids = Counter(int(dump.ledger.get("invalid_attempts") or 0) for dump in dumps)
+    return {
+        "n": len(dumps),
+        "completion_reason_counts": dict(reasons),
+        "reward_counts": dict(rewards),
+        "invalid_attempts_counts": {str(k): v for k, v in sorted(invalids.items())},
+        "minus_point_one_rate": (
+            sum(1 for dump in dumps if dump.ledger.get("reward") == -0.1) / len(dumps) if dumps else 0.0
+        ),
+    }
+
+
 def truncation_stat_row(dump: RolloutDump) -> dict[str, Any]:
     hit_cap = dump.completion_token_count >= dump.max_generated_tokens
     return {

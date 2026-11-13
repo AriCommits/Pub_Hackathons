@@ -33,6 +33,11 @@ Diagnostic override (never for claimed study evidence):
 export LEXSI_ALLOW_ANY_GPU=1
 # or
 python scripts/diagnose_grpo_rollouts.py --live-rollouts --allow-any-gpu --adapter /path/to/checkpoint-150
+# Real GRPO train set (not the toy 1+1 demo task):
+python scripts/diagnose_grpo_rollouts.py --live-rollouts --allow-any-gpu \
+  --adapter /path/to/checkpoint-150 \
+  --manifest data/benchmarks/tooluse_v2/manifest.json \
+  --count 8 --output /content/manifest_live_rollouts.json
 python scripts/train_grpo.py --smoke --live-gpu --allow-any-gpu --config actproto/configs/grpo_v2_gpu.yaml
 ```
 

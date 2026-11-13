@@ -160,3 +160,36 @@ def test_diagnose_cli_prompt_diff_and_fixtures(tmp_path):
     assert fixtures["gpu_required"] is False
     assert len(fixtures["rollouts"]) == 3
     assert any(row["ledger"]["reward"] == pytest.approx(-0.1) for row in fixtures["rollouts"])
+
+
+def test_select_manifest_tasks_stratifies_and_honors_ids():
+    from actproto.training.rollout_diagnostics import select_manifest_tasks
+
+    def make(task_id: str, n_deps: int):
+        deps = [
+            {"id": f"d{i}", "tool": "calculator", "arguments": {"expression": "1+1"}, "after": []}
+            for i in range(n_deps)
+        ]
+        return demo_task().__class__(
+            task_id,
+            f"g-{task_id}",
+            "train",
+            f"prompt {task_id}",
+            "required_tools",
+            {"answer": "2"},
+            deps or [{"id": "d0", "tool": "finish", "arguments": {"answer": "2"}, "after": []}],
+            {"type": "exact"},
+            4,
+            "env",
+            "hash",
+        )
+
+    tasks = [make("a", 1), make("b", 2), make("c", 1), make("d", 3), make("e", 2)]
+    picked = select_manifest_tasks(tasks, count=3, seed=0)
+    assert len(picked) == 3
+    assert len({t.task_id for t in picked}) == 3
+    # One from each depth bucket when possible.
+    depths = sorted(len(t.tool_dependencies) for t in picked)
+    assert depths == [1, 2, 3]
+    subset = select_manifest_tasks(tasks, count=2, task_ids=["d", "a"])
+    assert [t.task_id for t in subset] == ["d", "a"]

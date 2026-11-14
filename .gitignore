@@ -19,12 +19,33 @@ results/**
 !results/.gitkeep
 !results/b0_b2/
 !results/b0_b2/README.txt
+# Publishable LoRA adapters (weights + configs only; no optimizer/rng/secrets)
+!results/adapters/
+!results/adapters/**
+!results/sft_v2/
+!results/sft_v2/e2/
+!results/sft_v2/e2/checkpoint-150/
+!results/sft_v2/e2/checkpoint-150/**
+results/adapters/**/optimizer.pt
+results/adapters/**/scheduler.pt
+results/adapters/**/rng_state.pth
+results/adapters/**/training_args.bin
+results/adapters/**/trainer_state.json
+results/sft_v2/e2/checkpoint-150/optimizer.pt
+results/sft_v2/e2/checkpoint-150/scheduler.pt
+results/sft_v2/e2/checkpoint-150/rng_state.pth
+results/sft_v2/e2/checkpoint-150/training_args.bin
+results/**/resume-token.txt
 *.npy
 *.npz
 *.pt
 *.bin
 *.safetensors
-adapters/
+# Re-include publishable adapter weights after the global *.safetensors ban
+!results/adapters/**/adapter_model.safetensors
+!results/sft_v2/e2/checkpoint-150/adapter_model.safetensors
+# Only ignore a top-level ./adapters/ folder (not results/adapters/)
+/adapters/
 .hf_token
 HF_TOKEN
 credentials.json

@@ -2,17 +2,16 @@
 
 Canonical handoff. Prefer this file over older plan docs and the long `EXPERIMENT_STATUS.md` log.
 
-## LoRA adapters (staged)
-
-Frozen **e2** is on this tree (gitignored under `results/`):
+## LoRA adapters
 
 | Path | Role |
 | --- | --- |
-| `results/sft_v2/e2/checkpoint-150` | Canonical frozen SFT baseline (digest matches manifest) |
-| `results/adapters/e2` | Same checkpoint mirrored for HF-style `adapters/` layout |
+| `results/sft_v2/e2/checkpoint-150` | Canonical frozen SFT-v2 baseline (digest matches manifest) |
+| `results/adapters/e2` | Same checkpoint mirrored for `adapters/` layout |
+| `results/adapters/lora_run` | Fresh curriculum LoRA (trained this host, RTX 5060 Ti) |
 | `results/adapters/b1*` | Legacy B0–B2 curriculum adapters (do not overwrite `b1`) |
 
-Next for submission: eval if needed, then `python scripts/export_hf_artifacts.py --repo <id>`.
+Publishable adapter weights are tracked in git (configs + `adapter_model.safetensors` only; no optimizer/rng/secrets). Export: `python scripts/export_hf_artifacts.py --repo <id>`.
 
 Stretch-only code lives under `actproto/stretch/`; archive CLIs under `scripts/archive/`.
 

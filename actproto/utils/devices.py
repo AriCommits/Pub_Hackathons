@@ -57,7 +57,11 @@ def preferred_device() -> str:
 
 
 def pin_5060_ti_visible() -> str | None:
-    """Set CUDA_VISIBLE_DEVICES to the nvidia-smi ordinal for the RTX 5060 Ti.
+    """Pin CUDA_VISIBLE_DEVICES to the RTX 5060 Ti before torch initializes.
+
+    Sets ``CUDA_DEVICE_ORDER=PCI_BUS_ID`` so nvidia-smi ordinals match the CUDA
+    driver. Changing ``CUDA_VISIBLE_DEVICES`` after ``torch.cuda`` has initialized
+    has no effect, so this path must not import torch until the env is set.
 
     Returns the ordinal string, or None when CUDA is unavailable. Raises if the
     UUID cannot be selected. Leaves an already-set CUDA_VISIBLE_DEVICES alone
@@ -72,6 +76,9 @@ def pin_5060_ti_visible() -> str | None:
         parse_nvidia_gpu_csv,
         select_5060_ti,
     )
+
+    # Align nvidia-smi and CUDA ordinals on multi-GPU Windows hosts.
+    os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
     existing = os.environ.get("CUDA_VISIBLE_DEVICES")
     if existing is not None and existing != "":
@@ -107,6 +114,7 @@ def pin_5060_ti_visible() -> str | None:
     ordinal = ordinal_from_nvidia_rows(rows, preferred_device_uuid())
     os.environ["CUDA_VISIBLE_DEVICES"] = ordinal
     return ordinal
+
 
 def replica_plan(
     *,

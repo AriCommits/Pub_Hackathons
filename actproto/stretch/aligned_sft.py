@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from actproto.training.alignment_loss import total_loss
-from actproto.training.sft import build_train_payload
+from actproto.stretch.alignment_loss import total_loss
 from actproto.training.lora_config import LoraSftConfig
+from actproto.training.sft import build_train_payload
 
 
 def build_aligned_payload(tasks, config: LoraSftConfig, lam: float = 0.1) -> dict[str, Any]:

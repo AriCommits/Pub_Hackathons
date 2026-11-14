@@ -1,4 +1,4 @@
-from actproto.training.rewards import reward, reward_from_metrics
+from actproto.stretch.rewards import reward, reward_from_metrics
 
 
 def test_success_without_penalties():

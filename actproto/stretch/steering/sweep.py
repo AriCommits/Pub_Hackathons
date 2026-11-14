@@ -7,7 +7,7 @@ from typing import Any, Callable
 import numpy as np
 
 from actproto.activations.similarity import cosine_scores
-from actproto.steering.steer import steer
+from actproto.stretch.steering.steer import steer
 
 
 def default_alphas() -> list[float]:

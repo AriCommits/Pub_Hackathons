@@ -2,6 +2,15 @@
 
 Canonical handoff. Prefer this file over older plan docs and the long `EXPERIMENT_STATUS.md` log.
 
+## Produce LoRA adapters (next)
+
+1. **SFT-v2 (preferred):** train / resume under `results/sft_v2/` via `scripts/train_sft_v2.py` or `scripts/run_sft_study.py`. Frozen selection remains `e2` (see manifest below).
+2. **Legacy LoRA:** `scripts/train_lora.py` → `results/adapters/lora_run` (never overwrite preserved `results/adapters/b1` unless intentional).
+3. **Eval:** `scripts/run_trial.py` (B0–B2) and/or `scripts/run_experiment_v2.py` (tool-use v2).
+4. **Export:** `scripts/export_hf_artifacts.py`.
+
+Stretch-only code (steering, alignment-loss stub, legacy reward helpers) lives under `actproto/stretch/`. Contaminated train-echo CLIs and the non-training `train_aligned` stub live under `scripts/archive/`.
+
 ## Frozen SFT baseline
 
 - Record: [`SFT_BASELINE_MANIFEST.json`](SFT_BASELINE_MANIFEST.json)
@@ -32,17 +41,13 @@ python scripts/train_grpo.py --train --live-gpu \
 
 - Legacy B0–B2: `python scripts/run_trial.py --run B0|B1|B2|all`
 - Tool-use v2: `python scripts/run_experiment_v2.py …`
-- `B2ordereval` / `B2fmteval` are **diagnostic_train_echo** (prompts overlap curriculum training). Not held-out generalization.
+- `B2ordereval` / `B2fmteval` remain in `trial.yaml` as **diagnostic_train_echo**; CLIs moved to `scripts/archive/`.
 
-## Active remediation
+## Ops notes
 
-- [`plan_14/OVERVIEW.md`](plan_14/OVERVIEW.md) — security + cleanliness audit fixes (C1–C7 implemented on the audit branch)
 - Optional host UUID override: copy `actproto/configs/local.device.yaml.example` → `local.device.yaml` (gitignored)
-- Colab / laptop GRPO diagnostics (not study evidence): [`COLAB_ROLLOUT_DIAGNOSTICS.md`](COLAB_ROLLOUT_DIAGNOSTICS.md), `scripts/diagnose_grpo_rollouts.py`, `notebooks/colab_grpo_rollout_diagnostics.ipynb`. Use `--allow-any-gpu` / `LEXSI_ALLOW_ANY_GPU=1` only for dumps; UUID pin fails closed otherwise. For &lt;2 min laptop time, use the **Unattended one-shot** section (Drive mount + `live_rollouts_summary.json` Counter).
-
-## Results (today)
-
-- Snapshot: [`RESULTS_2026-11-14.md`](RESULTS_2026-11-14.md) — diagnose dumps, broken `grpo_gpu_study` (−0.1 / `template_mismatch`), fixed `grpo_gpu_study_fix` (finish / 1.0).
+- Colab / laptop GRPO diagnostics (not study evidence): [`COLAB_ROLLOUT_DIAGNOSTICS.md`](COLAB_ROLLOUT_DIAGNOSTICS.md), `scripts/diagnose_grpo_rollouts.py`
+- Snapshot: [`RESULTS_2026-11-14.md`](RESULTS_2026-11-14.md)
 
 ## Docs map
 
@@ -50,7 +55,8 @@ python scripts/train_grpo.py --train --live-gpu \
 | --- | --- |
 | `STATUS.md` | Current handoff (this file) |
 | `RESULTS_2026-11-14.md` | Committed numbers for gitignored `results/**` runs |
-| `EXPERIMENT_STATUS.md` | Historical run log; may contain stale lead warnings |
-| `AUDIT_2026-11-04.md` | Historical compliance audit (GRPO-stub claim is obsolete) |
+| `EXPERIMENT_STATUS.md` | Historical run log |
+| `AUDIT_2026-11-04.md` | Historical compliance audit |
 | `plan_*` | Historical sprint plans |
+| `archive/` | Moved brainstorm / clutter |
 | `.opencode/audits/` | Security + cleanliness audit reports |

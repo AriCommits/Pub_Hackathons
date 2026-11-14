@@ -1,7 +1,7 @@
 import numpy as np
 
 from actproto.activations.similarity import cosine_scores
-from actproto.steering.steer import contrast_direction, steer
+from actproto.stretch.steering.steer import contrast_direction, steer
 
 
 def test_steering_increases_target_cosine():

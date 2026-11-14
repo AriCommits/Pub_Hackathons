@@ -1,6 +1,6 @@
 import numpy as np
 
-from actproto.training.alignment_loss import contrastive_loss_numpy, total_loss
+from actproto.stretch.alignment_loss import contrastive_loss_numpy, total_loss
 
 
 def test_loss_drops_when_correct_prototype_moves_closer():

@@ -40,11 +40,16 @@ python scripts/train_grpo.py --train --live-gpu \
 - Optional host UUID override: copy `actproto/configs/local.device.yaml.example` → `local.device.yaml` (gitignored)
 - Colab / laptop GRPO diagnostics (not study evidence): [`COLAB_ROLLOUT_DIAGNOSTICS.md`](COLAB_ROLLOUT_DIAGNOSTICS.md), `scripts/diagnose_grpo_rollouts.py`, `notebooks/colab_grpo_rollout_diagnostics.ipynb`. Use `--allow-any-gpu` / `LEXSI_ALLOW_ANY_GPU=1` only for dumps; UUID pin fails closed otherwise. For &lt;2 min laptop time, use the **Unattended one-shot** section (Drive mount + `live_rollouts_summary.json` Counter).
 
+## Results (today)
+
+- Snapshot: [`RESULTS_2026-11-14.md`](RESULTS_2026-11-14.md) — diagnose dumps, broken `grpo_gpu_study` (−0.1 / `template_mismatch`), fixed `grpo_gpu_study_fix` (finish / 1.0).
+
 ## Docs map
 
 | File | Role |
 | --- | --- |
 | `STATUS.md` | Current handoff (this file) |
+| `RESULTS_2026-11-14.md` | Committed numbers for gitignored `results/**` runs |
 | `EXPERIMENT_STATUS.md` | Historical run log; may contain stale lead warnings |
 | `AUDIT_2026-11-04.md` | Historical compliance audit (GRPO-stub claim is obsolete) |
 | `plan_*` | Historical sprint plans |

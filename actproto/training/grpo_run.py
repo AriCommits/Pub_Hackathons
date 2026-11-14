@@ -151,6 +151,8 @@ HISTORICAL_RUNS = {
     "grpo_gpu_tools",
     "grpo_gpu_tools_r2",
     "grpo_gpu_prefix",
+    # Pre-fix study: every step template_mismatch / reward -0.1 under train()+ckpt sampling.
+    "grpo_gpu_study",
 }
 TRAIN_EPISODE_DEADLINE_SECONDS = 120.0
 
@@ -179,19 +181,29 @@ def _sample_peft_action(model, tokenizer, prompt_ids, *, temperature, top_p, max
     device = _parameter_device(model)
     input_ids = torch.tensor([list(prompt_ids)], dtype=torch.long, device=device)
     attention = torch.ones_like(input_ids)
-    with torch.inference_mode():
-        output = model.generate(
-            input_ids=input_ids,
-            attention_mask=attention,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=float(temperature),
-            top_p=float(top_p),
-            return_dict_in_generate=True,
-            output_scores=True,
-            pad_token_id=tokenizer.pad_token_id,
-            stopping_criteria=_tool_call_stopping_criteria(tokenizer, int(input_ids.shape[-1])),
-        )
+    # GRPO leaves the policy in train() with gradient checkpointing. Sampling in
+    # that mode collapses Tiny Aya into truncated garbage (all "<") and every
+    # episode dies as template_mismatch / reward -0.1. Eval mode for generate only.
+    was_training = bool(getattr(model, "training", False))
+    if was_training and hasattr(model, "eval"):
+        model.eval()
+    try:
+        with torch.inference_mode():
+            output = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=float(temperature),
+                top_p=float(top_p),
+                return_dict_in_generate=True,
+                output_scores=True,
+                pad_token_id=tokenizer.pad_token_id,
+                stopping_criteria=_tool_call_stopping_criteria(tokenizer, int(input_ids.shape[-1])),
+            )
+    finally:
+        if was_training and hasattr(model, "train"):
+            model.train()
     new_ids = output.sequences[0, input_ids.shape[-1]:].tolist()
     scores = tuple(output.scores)
     kept: list[int] = []

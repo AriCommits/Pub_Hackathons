@@ -15,15 +15,17 @@ Canonical handoff. Prefer this file over older plan docs and the long `EXPERIMEN
 - Live configs under `actproto/configs/`:
   - `grpo_v2.yaml` — CPU smoke / plan
   - `grpo_v2_gpu.yaml` — GPU fixture smoke
-  - `grpo_v2_gpu_prefix.yaml` — current study profile (`output_dir: results/rl_v2/grpo_gpu_study`)
+  - `grpo_v2_gpu_prefix.yaml` — study profile (use a **new** `--output` under `results/rl_v2/`)
 - Historical YAMLs live in `actproto/configs/archive/` and require `--allow-historical`
-- Protected output dirs include `grpo_gpu_e2`, `grpo_gpu_tools`, `grpo_gpu_prefix`, smokes
-- Tool-reward GRPO runs are **negative results**; the 200/200 macro 1.0 figure is SFT e2 validation, not GRPO
-- Historical `grpo_gpu_tools` logs do **not** include a `completion_reason` distribution (gitignored `results/rl_v2/**` absent here). Next train writes capped `decoded_completion_preview` + `completion_reason_counts` into `step_diagnostics.jsonl`; aggregate with `python scripts/summarize_grpo_diagnostics.py <path>`.
+- Protected output dirs include `grpo_gpu_e2`, `grpo_gpu_tools`, `grpo_gpu_prefix`, `grpo_gpu_study`, smokes
+- **Root cause of constant −0.1:** sampling while `model.train()` + gradient checkpointing produced truncated garbage → every episode `template_mismatch`. Fix: `_sample_peft_action` forces `eval()` for `generate`, then restores `train()`.
+- Aggregate diagnostics: `python scripts/summarize_grpo_diagnostics.py results/rl_v2/<run>/step_diagnostics.jsonl`
 
 ```bash
-# GPU study (requires CUDA env + --live-gpu; refuses CPU default config)
-python scripts/train_grpo.py --train --live-gpu --config actproto/configs/grpo_v2_gpu_prefix.yaml
+# GPU study (Plan 11 CUDA env; refuses CPU default config)
+python scripts/train_grpo.py --train --live-gpu \
+  --config actproto/configs/grpo_v2_gpu_prefix.yaml \
+  --output results/rl_v2/grpo_gpu_study_fix
 ```
 
 ## Live eval

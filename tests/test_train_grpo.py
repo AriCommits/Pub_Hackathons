@@ -655,7 +655,7 @@ def test_study_rollout_executes_tools_and_refuses_historical_directories(monkeyp
         grpo_run.refuse_historical_output(Path("results/rl_v2/grpo_gpu_e2"))
     with pytest.raises(GrpoConfigError, match="new results"):
         grpo_run.refuse_historical_output(Path("results/rl_v2/grpo_gpu_smoke"))
-    for name in ("grpo_gpu_tools", "grpo_gpu_tools_r2"):
+    for name in ("grpo_gpu_tools", "grpo_gpu_tools_r2", "grpo_gpu_study"):
         with pytest.raises(GrpoConfigError, match="new results"):
             grpo_run.refuse_historical_output(Path("results/rl_v2") / name)
 
@@ -671,9 +671,20 @@ def test_peft_sampler_logprobs_follow_returned_scores():
             return "call"
 
     class Model:
+        def __init__(self):
+            self.training = True
+            self._modes = []
         def parameters(self):
             yield torch.zeros(1)
+        def eval(self):
+            self.training = False
+            self._modes.append("eval")
+        def train(self, mode=True):
+            self.training = bool(mode)
+            self._modes.append("train" if mode else "eval")
         def generate(self, **kwargs):
+            # Sampling must run under eval(); train()+dropout/ckpt collapses Tiny Aya.
+            assert self.training is False
             new = torch.tensor([[4, 1]])
             sequences = torch.cat([kwargs["input_ids"], new], dim=-1)
             scores = (torch.zeros(1, 6), torch.zeros(1, 6))
@@ -682,12 +693,15 @@ def test_peft_sampler_logprobs_follow_returned_scores():
 
     from actproto.training.grpo_run import _sample_peft_action
 
+    model = Model()
     text, ids, logprobs, truncated = _sample_peft_action(
-        Model(), Tokenizer(), [3], temperature=1.0, top_p=1.0, max_new_tokens=4,
+        model, Tokenizer(), [3], temperature=1.0, top_p=1.0, max_new_tokens=4,
     )
     assert text == "call"
     assert ids == [4]
     assert truncated is False
+    assert model.training is True
+    assert model._modes == ["eval", "train"]
 
     class EosModel(Model):
         def generate(self, **kwargs):

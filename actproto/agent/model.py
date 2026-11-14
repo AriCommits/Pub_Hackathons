@@ -56,26 +56,29 @@ def load_model(config: ExperimentConfig, device: str | None = None) -> LoadedMod
 def _tool_call_stopping_criteria(tokenizer: Any, prompt_len: int):
     from actproto.agent.stop import completion_should_stop
 
-    def _stop(input_ids, scores, **kwargs):
+    def _stop_flag(input_ids, scores, **kwargs):
+        del scores, kwargs
         new_ids = input_ids[0, prompt_len:]
         text = tokenizer.decode(new_ids, skip_special_tokens=False)
         return completion_should_stop(text)
 
     try:
+        import torch
         from transformers import StoppingCriteria, StoppingCriteriaList
     except ImportError:
         class _CallableCriteria(list):
             def __call__(self, input_ids, scores, **kwargs):
-                return _stop(input_ids, scores, **kwargs)
+                return _stop_flag(input_ids, scores, **kwargs)
 
-        return _CallableCriteria([_stop])
+        return _CallableCriteria([_stop_flag])
 
     class _StopAfterOneToolCall(StoppingCriteria):
         def __call__(self, input_ids, scores, **kwargs):
-            return _stop(input_ids, scores, **kwargs)
+            # transformers StoppingCriteriaList ORs BoolTensors; a bare bool is fragile.
+            done = bool(_stop_flag(input_ids, scores, **kwargs))
+            return torch.full((input_ids.shape[0],), done, device=input_ids.device, dtype=torch.bool)
 
     return StoppingCriteriaList([_StopAfterOneToolCall()])
-
 
 def _parameter_device(model: Any):
     try:

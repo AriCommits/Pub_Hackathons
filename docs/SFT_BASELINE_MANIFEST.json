@@ -1,5 +1,5 @@
 {
-  "adapter_path": "C:\\Users\\arian\\Github\\Hackathons-worktrees\\plan-9-complete\\lexsi\\results\\sft_v2\\e2\\checkpoint-150",
+  "adapter_path": "results/sft_v2/e2/checkpoint-150",
   "adapter_sha256": "6125195bc713f8c4d9e89070233b65667a8068f8fc684a1e14a2522a26b8d670",
   "dataset_manifest_sha256": "fc7ff9c37943b789f192ce55917076554375e8fc32d66ca815ef2284c2b56f60",
   "epochs_executed": 1,

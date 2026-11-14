@@ -149,7 +149,8 @@ runs:
     replicas: 1
 
 export:
-  # Frozen SFT baseline (see docs/SFT_BASELINE_MANIFEST.json). Historical b1 stays under paths.adapter_b1.
-  adapter: results/sft_v2/e2
+  # Frozen SFT baseline (see docs/SFT_BASELINE_MANIFEST.json). Also mirrored at results/adapters/e2.
+  # Historical b1 stays under paths.adapter_b1.
+  adapter: results/sft_v2/e2/checkpoint-150
   data: data/processed
   logs: results/b0_b2

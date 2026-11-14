@@ -2,21 +2,26 @@
 
 Canonical handoff. Prefer this file over older plan docs and the long `EXPERIMENT_STATUS.md` log.
 
-## Produce LoRA adapters (next)
+## LoRA adapters (staged)
 
-1. **SFT-v2 (preferred):** train / resume under `results/sft_v2/` via `scripts/train_sft_v2.py` or `scripts/run_sft_study.py`. Frozen selection remains `e2` (see manifest below).
-2. **Legacy LoRA:** `scripts/train_lora.py` → `results/adapters/lora_run` (never overwrite preserved `results/adapters/b1` unless intentional).
-3. **Eval:** `scripts/run_trial.py` (B0–B2) and/or `scripts/run_experiment_v2.py` (tool-use v2).
-4. **Export:** `scripts/export_hf_artifacts.py`.
+Frozen **e2** is on this tree (gitignored under `results/`):
 
-Stretch-only code (steering, alignment-loss stub, legacy reward helpers) lives under `actproto/stretch/`. Contaminated train-echo CLIs and the non-training `train_aligned` stub live under `scripts/archive/`.
+| Path | Role |
+| --- | --- |
+| `results/sft_v2/e2/checkpoint-150` | Canonical frozen SFT baseline (digest matches manifest) |
+| `results/adapters/e2` | Same checkpoint mirrored for HF-style `adapters/` layout |
+| `results/adapters/b1*` | Legacy B0–B2 curriculum adapters (do not overwrite `b1`) |
+
+Next for submission: eval if needed, then `python scripts/export_hf_artifacts.py --repo <id>`.
+
+Stretch-only code lives under `actproto/stretch/`; archive CLIs under `scripts/archive/`.
 
 ## Frozen SFT baseline
 
-- Record: [`SFT_BASELINE_MANIFEST.json`](SFT_BASELINE_MANIFEST.json)
-- Selected id: `e2` under `results/sft_v2/e2/` (checkpoint-150 on the study host)
-- Trial HF export default: `results/sft_v2/e2` (see `actproto/configs/trial.yaml` `export.adapter`)
-- Historical LoRA B1 adapters remain at `results/adapters/b1` and `results/adapters/b1_assistant_only` for legacy B0–B2 runs; **do not train into `b1` by default** (`sft.yaml` defaults to `results/adapters/lora_run`)
+- Record: [`SFT_BASELINE_MANIFEST.json`](SFT_BASELINE_MANIFEST.json) — `adapter_path` is repo-relative
+- Selected id: `e2` / `checkpoint-150`
+- Trial HF export default: `results/sft_v2/e2/checkpoint-150`
+- Historical LoRA B1 adapters remain at `results/adapters/b1` and `results/adapters/b1_assistant_only`
 
 ## GRPO
 

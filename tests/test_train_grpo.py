@@ -17,6 +17,13 @@ CONFIG = Path("actproto/configs/grpo_v2.yaml")
 LEXSI = Path(__file__).resolve().parents[1]
 
 
+def _git_lfs_pointer(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    with path.open("rb") as handle:
+        return handle.read(128).startswith(b"version https://git-lfs.github.com/spec/v1")
+
+
 def _directory_sha256(adapter: Path) -> str:
     digest = sha256()
     files = sorted(path for path in adapter.rglob("*") if path.is_file())
@@ -276,6 +283,8 @@ def test_shipped_baseline_matches_adapter_digest_not_concatenation():
     adapter = Path(shipped["adapter_path"])
     if not adapter.is_dir():
         pytest.skip("frozen adapter directory is not in this checkout")
+    if _git_lfs_pointer(adapter / "adapter_model.safetensors"):
+        pytest.skip("adapter weights are a Git LFS pointer; smudge the blob before checking the digest")
     assert adapter_digest(adapter) == shipped["adapter_sha256"]
     assert _directory_sha256(adapter) != shipped["adapter_sha256"]
     manifest = _require_baseline(LEXSI, load_grpo_config(CONFIG))

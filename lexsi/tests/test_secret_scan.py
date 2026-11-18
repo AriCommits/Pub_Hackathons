@@ -4,7 +4,7 @@ import pytest
 
 from actproto.utils.paths import PathEscapeError, contain_under
 from actproto.utils.secret_scan import assert_paths_clean, scan_file_for_secrets, write_secret_file
-from scripts.export_hf_artifacts import assert_no_secrets
+from lexsi.scripts.export_hf_artifacts import assert_no_secrets
 
 
 def test_content_scan_catches_api_key_json(tmp_path):

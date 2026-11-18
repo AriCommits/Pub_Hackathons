@@ -1,4 +1,4 @@
-from scripts.query_arg_report import classify_query_call, decision_sentence, render_report
+from lexsi.scripts.query_arg_report import classify_query_call, decision_sentence, render_report
 
 
 def test_missing_year_that_the_regex_recovers_is_missing_field():

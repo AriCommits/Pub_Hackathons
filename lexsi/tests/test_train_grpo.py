@@ -11,7 +11,7 @@ from actproto.experiments.contracts import TaskSpec
 from actproto.training.grpo import build_grpo_kwargs, try_create_trainer
 from actproto.training.grpo_run import completed_marker, public_prompt_rows, run_collect_only, run_plan, run_resume, run_smoke, run_train
 from actproto.training.rl_config import GrpoConfigError, load_grpo_config
-from scripts.train_grpo import main
+from lexsi.scripts.train_grpo import main
 
 CONFIG = Path("actproto/configs/grpo_v2.yaml")
 LEXSI = Path(__file__).resolve().parents[1]
@@ -92,7 +92,7 @@ def test_missing_baseline_and_empty_prompts_fail(tmp_path):
             with pytest.raises(GrpoConfigError, match="adapter path does not exist"):
                 run_train(config, LEXSI)
 
-    from scripts.run_experiment_v2 import adapter_digest
+    from lexsi.scripts.run_experiment_v2 import adapter_digest
 
     adapter = tmp_path / "adapter"
     adapter.mkdir()
@@ -242,7 +242,7 @@ def test_gpu_output_refuses_the_cpu_smoke_and_adapter_paths(tmp_path):
 
 
 def _saved_adapter(root: Path) -> str:
-    from scripts.run_experiment_v2 import adapter_digest
+    from lexsi.scripts.run_experiment_v2 import adapter_digest
 
     adapter = root / "adapter"
     adapter.mkdir()
@@ -262,7 +262,7 @@ def _project_with_baseline(tmp_path: Path, digest: str, adapter: Path) -> Path:
 
 
 def test_baseline_checker_rejects_the_concatenation_hash(tmp_path):
-    from scripts.run_experiment_v2 import adapter_digest
+    from lexsi.scripts.run_experiment_v2 import adapter_digest
 
     adapter = tmp_path / "adapter"
     adapter.mkdir()
@@ -277,7 +277,7 @@ def test_baseline_checker_rejects_the_concatenation_hash(tmp_path):
 
 def test_shipped_baseline_matches_adapter_digest_not_concatenation():
     from actproto.training.grpo_run import _require_baseline
-    from scripts.run_experiment_v2 import adapter_digest
+    from lexsi.scripts.run_experiment_v2 import adapter_digest
 
     shipped = json.loads((LEXSI / "docs" / "SFT_BASELINE_MANIFEST.json").read_text(encoding="utf-8"))
     adapter = Path(shipped["adapter_path"])
@@ -442,7 +442,7 @@ def test_finish_string_without_a_tool_trace_is_not_a_training_reward():
 
 
 def test_val_comparison_rejects_a_sealed_test_payload(tmp_path):
-    from scripts.compare_experiments_v2 import compare_candidates, load_candidates
+    from lexsi.scripts.compare_experiments_v2 import compare_candidates, load_candidates
 
     path = tmp_path / "sealed.json"
     path.write_text(json.dumps({"split": "test", "status": "completed", "id": "sealed"}), encoding="utf-8")
@@ -1005,8 +1005,8 @@ class _CharTokenizer:
 def test_val_comparison_rejects_a_test_split_and_unit_tests_do_not_launch_the_smoke(tmp_path, monkeypatch):
     import json
 
-    from scripts.compare_experiments_v2 import compare_candidates, load_candidates
-    import scripts.train_grpo as train_grpo
+    from lexsi.scripts.compare_experiments_v2 import compare_candidates, load_candidates
+    import lexsi.scripts.train_grpo as train_grpo
 
     launched = []
     visible = os.environ.get("CUDA_VISIBLE_DEVICES")

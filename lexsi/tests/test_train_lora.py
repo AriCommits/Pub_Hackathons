@@ -1,6 +1,6 @@
 import json
 
-from scripts import train_lora
+from lexsi.scripts import train_lora
 
 
 def test_output_dir_flag_overrides_the_b1_path(capsys):

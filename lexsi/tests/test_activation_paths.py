@@ -6,7 +6,8 @@ from pathlib import Path
 import numpy as np
 
 from actproto.activations.store import write_dump
-from scripts import build_prototypes, extract_activations
+from lexsi.scripts import build_prototypes
+from lexsi.scripts import extract_activations
 
 ROOT = Path(__file__).resolve().parents[1]
 

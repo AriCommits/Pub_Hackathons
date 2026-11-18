@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from actproto.configs.schema import ExperimentConfig
 from actproto.configs.trial_schema import RunSpec, TrialConfig
 from actproto.evaluation import live_runner
-from scripts import run_trial
+from lexsi.scripts import run_trial
 
 
 class StubTrial:

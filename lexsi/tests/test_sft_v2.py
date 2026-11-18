@@ -3,7 +3,7 @@ import json
 import pytest
 
 from actproto.training.sft_v2 import preflight, read_rows, select_checkpoint, selection_key, train
-from test_sft_masks import ToyTokenizer
+from lexsi.tests.test_sft_masks import ToyTokenizer
 
 
 def row(split='train'):
@@ -110,7 +110,7 @@ def test_cli_dry_run_preflights_without_loading_model(tmp_path, monkeypatch):
     import yaml
     from actproto.experiments.manifest import RunManifest, hash_bytes, hash_file, hash_object
     from actproto.training.sft_masks import _BRANCH
-    from scripts.train_sft_v2 import main
+    from lexsi.scripts.train_sft_v2 import main
     class AutoTokenizer:
         @staticmethod
         def from_pretrained(*args, **kwargs):

@@ -1171,7 +1171,7 @@ def _require_baseline(project_root: Path, config: GrpoV2Config) -> dict:
     files = sorted(path for path in adapter.rglob("*") if path.is_file())
     if not files:
         raise GrpoConfigError("baseline adapter is empty")
-    from scripts.run_experiment_v2 import adapter_digest
+    from lexsi.scripts.run_experiment_v2 import adapter_digest
 
     try:
         digest = adapter_digest(adapter)

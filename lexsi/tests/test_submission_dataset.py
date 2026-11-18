@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.curate_submission_dataset import curate
+from lexsi.scripts.curate_submission_dataset import curate
 
 
 def _row(axis, prompt, answer, stratum="single_tool"):

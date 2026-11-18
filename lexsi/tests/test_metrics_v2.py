@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from actproto.evaluation.metrics_v2 import episode_metrics
 from actproto.evaluation.verification_v2 import verify
-from test_verification_v2 import run, spec
+from lexsi.tests.test_verification_v2 import run, spec
 
 
 def test_counts_repeat_calls_and_model_tokens_without_inventing_bound():

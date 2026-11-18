@@ -1,4 +1,4 @@
-from scripts.depth1_report import render_markdown, summarize_rows
+from lexsi.scripts.depth1_report import render_markdown, summarize_rows
 
 
 ROWS = [

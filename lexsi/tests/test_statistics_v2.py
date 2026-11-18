@@ -3,7 +3,7 @@ import json
 import pytest
 
 from actproto.evaluation.statistics_v2 import macro_verified_success, paired_group_bootstrap
-from scripts.compare_experiments_v2 import compare_candidates
+from lexsi.scripts.compare_experiments_v2 import compare_candidates
 
 
 def _row(task, group, stratum, success):

@@ -4,7 +4,7 @@ import json
 import pytest
 
 from actproto.experiments.manifest import hash_file
-from scripts.export_experiment_v2 import export
+from lexsi.scripts.export_experiment_v2 import export
 
 
 def bundle_fixture(tmp_path):

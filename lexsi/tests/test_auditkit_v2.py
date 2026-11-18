@@ -74,7 +74,7 @@ def test_missing_auditkit_fails_closed(monkeypatch):
 
 
 def test_recorded_rescore_requires_exact_selected_split(tmp_path, monkeypatch):
-    from scripts import check_toolkit_compat
+    from lexsi.scripts import check_toolkit_compat
     task, trace = specimens()[0]
     monkeypatch.setattr(check_toolkit_compat, "load_data", lambda manifest, split: (None, [task]))
     traces = tmp_path / "traces.jsonl"

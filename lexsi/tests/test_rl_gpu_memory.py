@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from scripts.measure_rl_gpu_memory import build_memory_record, main
+from lexsi.scripts.measure_rl_gpu_memory import build_memory_record, main
 
 TI = "134c34ef-c155-b001-4e3a-b9134b072c21"
 CARD_4060 = "5b885e12-623f-268c-f07c-ee33db379969"

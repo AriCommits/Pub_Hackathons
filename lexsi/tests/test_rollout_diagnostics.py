@@ -147,7 +147,7 @@ def test_allow_any_gpu_env_flag(monkeypatch):
 
 
 def test_diagnose_cli_prompt_diff_and_fixtures(tmp_path):
-    from scripts.diagnose_grpo_rollouts import main
+    from lexsi.scripts.diagnose_grpo_rollouts import main
 
     out = tmp_path / "prompt.json"
     assert main(["--prompt-diff", "--output", str(out)]) == 0

@@ -112,7 +112,7 @@ def test_gate_matched_modes_fallback_and_failure_default_off():
 
 
 def test_cli_end_to_end_and_binding_checked_load(tmp_path):
-    from scripts.calibrate_router_v2 import main
+    from lexsi.scripts.calibrate_router_v2 import main
     b = binding()
     for split in ('train', 'val'):
         root = tmp_path / split

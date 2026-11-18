@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.export_hf_artifacts import assert_no_secrets, collect, main
+from lexsi.scripts.export_hf_artifacts import assert_no_secrets, collect, main
 
 
 def test_export_list_only():

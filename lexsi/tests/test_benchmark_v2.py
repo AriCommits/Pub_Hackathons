@@ -6,7 +6,7 @@ from actproto.agent.parse import parse_tool_call
 from actproto.data.benchmark_v2 import QUOTAS, STRATA, build_benchmark, replay_gold
 from actproto.data.curriculum_v2 import repair_mix, select_probe
 from actproto.data.splits_v2 import validate_splits
-from scripts.build_benchmark_v2 import training_row
+from lexsi.scripts.build_benchmark_v2 import training_row
 
 
 @pytest.fixture(scope="module")

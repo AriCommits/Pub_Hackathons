@@ -1,94 +1,47 @@
 # ActProto-LoRA
 
-Activation-prototype tool routing for **Tiny Aya Global**, built for the Lexsi AI Safety and Alignment Hackathon (Track 3: Agentic Fine-tuning).
+Verified tool use on **Tiny Aya Global**, for the Lexsi Track 3 hackathon (agentic fine-tuning).
 
-The system reads residual-stream activations immediately before tool choice, builds a cosine prototype per tool, and routes the call only when a validation-chosen confidence threshold is met. Arguments are regenerated against the selected tool’s JSON schema. Tool names are never swapped inside an already-generated call.
+A LoRA adapter calls local tools to answer synthetic business questions. A task counts only when the harness runs those calls. The selected policy is frozen supervised adapter **e2**. A prototype router and a GRPO trainer sit beside it and do not replace it.
 
-Ordinary LoRA tool-use fine-tuning is the baseline. A linear probe on the same activations is the representation baseline. The headline metric is **verified task success**, not claimed success.
+## Start here
 
-Current handoff: [`docs/STATUS.md`](docs/STATUS.md). Historical B0–B2 / SFT / GRPO run log: [`docs/EXPERIMENT_STATUS.md`](docs/EXPERIMENT_STATUS.md).
+| | |
+| --- | --- |
+| Write-up | [`submission/ARTICLE.md`](submission/ARTICLE.md) |
+| Data card | [`submission/DATACARD.md`](submission/DATACARD.md) |
+| Public data | [`submission/data/`](submission/data/) — 1,200 training messages, 200 validation prompts |
+| Model card | [`submission/MODEL_CARD.md`](submission/MODEL_CARD.md) |
+| Reproduce | [`submission/REPRODUCE.md`](submission/REPRODUCE.md) |
+| Selected adapter | [`results/sft_v2/e2/checkpoint-150`](results/sft_v2/e2/checkpoint-150) |
 
-## Submission
-
-The selected policy is frozen SFT e2. GRPO is optional and is not that policy.
-
-- Judge write-up: [`submission/ARTICLE.md`](submission/ARTICLE.md)
-- Dataset card: [`submission/DATACARD.md`](submission/DATACARD.md)
-- Model card: [`submission/MODEL_CARD.md`](submission/MODEL_CARD.md)
-- Reproduction: [`submission/REPRODUCE.md`](submission/REPRODUCE.md)
-- Status: [`docs/STATUS.md`](docs/STATUS.md)
+The base model is [`CohereLabs/tiny-aya-global`](https://huggingface.co/CohereLabs/tiny-aya-global), revision `af89d219b53ed9b13b8a4645f9c8028973510324`, bf16. It is gated. This repo does not include the base weights or the base tokenizer.
 
 ## Setup
 
-Python 3.10+. The model repo `CohereLabs/tiny-aya-global` is gated.
+Python 3.10 or newer.
 
 ```bash
 cd lexsi
 python -m pip install -e ".[dev]"
-python -m pip install -e ".[train]"   # GPU train / live infer
-huggingface-cli login                   # HF_TOKEN for Tiny Aya
-```
-
-## Produce LoRA adapters
-
-Preferred (frozen SFT-v2 e2 path):
-
-```bash
-python scripts/train_sft_v2.py --help
-python scripts/run_sft_study.py         # matrix study when needed
-```
-
-Legacy curriculum LoRA (B0–B2 stack):
-
-```bash
-python scripts/generate_dataset.py
-python scripts/train_lora.py --plan-only          # drop flag for GPU training
-# default output is results/adapters/lora_run — do not train into b1 by default
-```
-
-Export for submission:
-
-```bash
-python scripts/export_hf_artifacts.py --list-only
-python scripts/export_hf_artifacts.py --repo your-org/actproto-lexsi
-```
-
-## Live eval
-
-```bash
-python scripts/run_trial.py --run all             # legacy B0, B1, B2
-python scripts/run_experiment_v2.py --help        # tool-use v2
-python scripts/compare_results.py
-```
-
-Supporting B0–B2 pipeline: `extract_activations.py` → `build_prototypes.py` → `train_probe.py`. Extra historical B2d1 / order / format variants live in [`docs/EXPERIMENT_STATUS.md`](docs/EXPERIMENT_STATUS.md); contaminated train-echo CLIs are under `scripts/archive/`.
-
-## GRPO (optional RL)
-
-Needs the Plan 11 CUDA env (see [`docs/RL_GPU_ENV.md`](docs/RL_GPU_ENV.md)). Live entry: `scripts/train_grpo.py`. The selected policy is frozen SFT e2.
-
-| Role | Config | Notes |
-| --- | --- | --- |
-| CPU / plan | `actproto/configs/grpo_v2.yaml` | default `--config` |
-| GPU smoke | `actproto/configs/grpo_v2_gpu.yaml` | `--smoke --live-gpu` |
-| GPU study | `actproto/configs/grpo_v2_gpu_prefix.yaml` | `--train --live-gpu`; new `--output` under `results/rl_v2/` |
-| Historical | `actproto/configs/archive/*` | require `--allow-historical` |
-
-## Layout
-
-```
-actproto/
-  configs/ training/ evaluation/ agent/ activations/ tools/ data/ …
-  stretch/   # research-only (steering, alignment loss, legacy rewards)
-scripts/     # live CLIs; scripts/archive/ for stubs & train-echo diagnostics
-tests/
-docs/STATUS.md
-```
-
-## Tests
-
-```bash
 python -m pytest
 ```
 
-Trial paths: edit **`actproto/configs/trial.yaml`** ([`docs/TRIAL_CONFIG.md`](docs/TRIAL_CONFIG.md)).
+GPU training and live inference also need `pip install -e ".[train]"` and `huggingface-cli login`. Use a 16 GB card. The notes use an RTX 5060 Ti. An 8 GB card is the wrong device for bf16 Tiny Aya.
+
+## What is in the tree
+
+```text
+actproto/     library: tools, data, training, evaluation
+scripts/      command-line entry points
+tests/        pytest suite
+submission/   write-up, cards, and the public data slice
+results/      LoRA adapters (weights via Git LFS)
+docs/         status and method notes
+```
+
+The sealed test is not in `submission/data/`. `data/benchmarks/` is gitignored and is where a local full build goes.
+
+## License
+
+The adapter and the synthetic data slice are released for noncommercial use under CC-BY-NC-4.0. The base model is CC-BY-NC and also requires Cohere Labs' Acceptable Use Policy.

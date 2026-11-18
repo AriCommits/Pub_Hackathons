@@ -1,0 +1,23 @@
+{
+  "files": {
+    "train_messages.jsonl": "c01647d7e4a0d36eefd6cfe1dabf2a11ca095a0508ce3e253d7ff02612338a5c",
+    "val_prompts.jsonl": "59069d522d1086a85ed31f11f765d3b86bf5c3ffe0acdba1a4ec2bbec632e30a"
+  },
+  "fixture_environment_id": "tooluse_v2.fixtures.1",
+  "seed": 42,
+  "split_sizes": {
+    "iid": 200,
+    "stress": 200,
+    "train": 1200,
+    "val": 200
+  },
+  "train_messages": 1200,
+  "val_prompts": 200,
+  "withheld": [
+    "test",
+    "stress",
+    "oracles",
+    "fixtures",
+    "traces"
+  ]
+}

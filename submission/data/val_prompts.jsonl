@@ -1,0 +1,200 @@
+{"prompt": "Find the service guide for item2828855; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "How many sales were recorded for item2489390 in 2015? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1199886, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1853834, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2849413 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "How many sales were recorded for item2071645 in 2019? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "How many sales were recorded for item2281420 in 2018? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "How many sales were recorded for item2928198 in 2018? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the service guide for item2480427; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First query item2782042 sales in 2016, then look up record V2-1655274; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Which product is listed in record V2-1985765? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1360821, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "What is the annual sales figure for item2100897 in 2018 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1579893, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "The reference code is CODE-0138. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "What is the annual sales figure for item2025192 in 2019 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2592526 in 2016 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "The reference code is CODE-0174. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Which product is listed in record V2-1225923? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Look up MISSING-0187; if it is missing, use record V2-1451838 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "How many sales were recorded for item2302211 in 2013? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First query item2875760 sales in 2020, then look up record V2-1614074; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Look up MISSING-0227; if it is missing, use record V2-1994832 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Look up MISSING-0235; if it is missing, use record V2-1706503 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Find the service guide for item2060066; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1756120, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2669980 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1996238, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2839003 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the guide for item2535703 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Which product is listed in record V2-1719097? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "What is the annual sales figure for item2135540 in 2015 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2220122 in 2018 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Which product is listed in record V2-1936080? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the guide for item2618228 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-0313; if it is missing, use record V2-1456051 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Which product is listed in record V2-1779413? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Using record V2-1310619, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First query item2261791 sales in 2011, then look up record V2-1990517; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Look up MISSING-0328; if it is missing, use record V2-1672520 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "How many sales were recorded for item2940729 in 2019? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Look up MISSING-0338; if it is missing, use record V2-1156721 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Using record V2-1118701, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1464620, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Using record V2-1764346, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the guide for item2503658 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2833465 in 2023 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1195399, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2948309 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-0424; if it is missing, use record V2-1370726 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Find the service guide for item2338300; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "What is the annual sales figure for item2581296 in 2017 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the guide for item2177285 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1698550, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1919383, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2877532 in 2015 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the service guide for item2635224; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1302382, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1900284, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Which product is listed in record V2-1360728? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the guide for item2814549 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "How many sales were recorded for item2992308 in 2012? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "What is the annual sales figure for item2373819 in 2024 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1049869, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "How many sales were recorded for item2406390 in 2013? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1011874, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Which product is listed in record V2-1377610? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the service guide for item2473574; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Using record V2-1385639, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "How many sales were recorded for item2179657 in 2023? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First query item2444526 sales in 2018, then look up record V2-1235139; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Find the service guide for item2485141; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "How many sales were recorded for item2691348 in 2019? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "The reference code is CODE-0651. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "What is the annual sales figure for item2947687 in 2011 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-0661; if it is missing, use record V2-1858169 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1324964, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Which product is listed in record V2-1917562? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the service guide for item2932827; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Using record V2-1147360, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Return only the requested value as the final answer. First query item2577073 sales in 2021, then look up record V2-1284291; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "What is the annual sales figure for item2665329 in 2021 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2750688 in 2017 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-0718; if it is missing, use record V2-1754630 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Using record V2-1828339, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the guide for item2127359 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "How many sales were recorded for item2921612 in 2016? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the service guide for item2214699; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the guide for item2660323 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1601129, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First query item2169624 sales in 2021, then look up record V2-1559887; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "How many sales were recorded for item2639635 in 2012? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1927597, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1026326, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1982078, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1500421, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "How many sales were recorded for item2130368 in 2012? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "What is the annual sales figure for item2069834 in 2022 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the service guide for item2557009; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1822303, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "How many sales were recorded for item2326912 in 2013? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Using record V2-1122280, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2645934 in 2018 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-0913; if it is missing, use record V2-1614244 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Return only the requested value as the final answer. First query item2502291 sales in 2025, then look up record V2-1225360; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1267975, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1068491, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "What is the annual sales figure for item2927413 in 2017 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1447947, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2015579 in 2020 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First query item2482556 sales in 2021, then look up record V2-1210475; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1409377, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Which product is listed in record V2-1785613? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Using record V2-1741893, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2804188 in 2015 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2273795 in 2014 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1331748, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-1019; if it is missing, use record V2-1238566 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1706334, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "The reference code is CODE-1044. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "The reference code is CODE-1047. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "What is the annual sales figure for item2120164 in 2024 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the service guide for item2126448; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Look up MISSING-1079; if it is missing, use record V2-1160499 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "What is the annual sales figure for item2716668 in 2012 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2482498 in 2025 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Which product is listed in record V2-1443145? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the guide for item2045878 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1804483, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2554981 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the guide for item2909101 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1270812, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First query item2507049 sales in 2024, then look up record V2-1285691; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2869593 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the guide for item2372373 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1283395, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2859120 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "How many sales were recorded for item2636131 in 2014? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "The reference code is CODE-1269. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1644007, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2392773 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Look up MISSING-1327; if it is missing, use record V2-1668107 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Look up MISSING-1333; if it is missing, use record V2-1283774 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Find the guide for item2104008 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1220026, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2711835 in 2019 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the service guide for item2384545; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1142633, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1293650, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1383949, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "What is the annual sales figure for item2353427 in 2025 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2693565 in 2018 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Return only the requested value as the final answer. First query item2652666 sales in 2017, then look up record V2-1872533; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "The reference code is CODE-1407. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1696444, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "What is the annual sales figure for item2402379 in 2025 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Which product is listed in record V2-1366498? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Look up MISSING-1426; if it is missing, use record V2-1759774 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Which product is listed in record V2-1449482? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First query item2885162 sales in 2017, then look up record V2-1184750; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1452693, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Return only the requested value as the final answer. First query item2909068 sales in 2022, then look up record V2-1843600; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1215809, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "Look up MISSING-1498; if it is missing, use record V2-1226493 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1947285, then query sales for that record's product and year; finally return sales less 5. Do not use the document catalog.", "task_type": "ordered_subset"}
+{"prompt": "The reference code is CODE-1521. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "What is the annual sales figure for item2233055 in 2016 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Which product is listed in record V2-1987720? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Which product is listed in record V2-1649892? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "The reference code is CODE-1551. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Find the service guide for item2150232; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First query item2137235 sales in 2015, then look up record V2-1888395; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Find the service guide for item2421363; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "What is the annual sales figure for item2415302 in 2010 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1907923, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2612467 in 2024 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "The reference code is CODE-1623. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Which product is listed in record V2-1983799? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "How many sales were recorded for item2392208 in 2017? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "The reference code is CODE-1638. Repeat the code exactly without using any tools. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Using record V2-1461589, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2564294 in 2010 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1343003, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "What is the annual sales figure for item2118744 in 2014 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "What is the annual sales figure for item2720691 in 2017 after adding 17? Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Find the service guide for item2176365; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First look up V2-1574461, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Look up MISSING-1703; if it is missing, use record V2-1277131 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Look up MISSING-1706; if it is missing, use record V2-1594887 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Using record V2-1147552, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Output convention: Return only the requested value as the final answer.\nExecution: First look up V2-1689500, then locate its product's service guide; return the guide ID. Do not query sales or calculate.", "task_type": "ordered_subset"}
+{"prompt": "Find the guide for item2565792 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "Using record V2-1104221, find its product and annual sales, then double that sales value. Return only the requested value as the final answer.", "task_type": "dependent"}
+{"prompt": "How many sales were recorded for item2410483 in 2024? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Find the service guide for item2774809; return its document ID. Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Return only the requested value as the final answer. First query item2558993 sales in 2014, then look up record V2-1794984; return the product field from the record. Do not search or calculate.", "task_type": "ordered_subset"}
+{"prompt": "How many sales were recorded for item2170800 in 2022? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Which product is listed in record V2-1347801? Return only the requested value as the final answer.", "task_type": "single_tool"}
+{"prompt": "Look up MISSING-1789; if it is missing, use record V2-1580877 instead and return its product. Return only the requested value as the final answer.", "task_type": "recovery_no_tool"}
+{"prompt": "Find the guide for item2744792 and triple its service interval in days. Return only the requested value as the final answer.", "task_type": "dependent"}

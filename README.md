@@ -8,6 +8,16 @@ Ordinary LoRA tool-use fine-tuning is the baseline. A linear probe on the same a
 
 Current handoff: [`docs/STATUS.md`](docs/STATUS.md). Historical B0–B2 / SFT / GRPO run log: [`docs/EXPERIMENT_STATUS.md`](docs/EXPERIMENT_STATUS.md).
 
+## Submission
+
+The selected policy is frozen SFT e2. GRPO is optional and is not that policy.
+
+- Judge write-up: [`submission/ARTICLE.md`](submission/ARTICLE.md)
+- Dataset card: [`submission/DATACARD.md`](submission/DATACARD.md)
+- Model card: [`submission/MODEL_CARD.md`](submission/MODEL_CARD.md)
+- Reproduction: [`submission/REPRODUCE.md`](submission/REPRODUCE.md)
+- Status: [`docs/STATUS.md`](docs/STATUS.md)
+
 ## Setup
 
 Python 3.10+. The model repo `CohereLabs/tiny-aya-global` is gated.
@@ -55,7 +65,7 @@ Supporting B0–B2 pipeline: `extract_activations.py` → `build_prototypes.py` 
 
 ## GRPO (optional RL)
 
-Needs the Plan 11 CUDA env (see [`docs/RL_GPU_ENV.md`](docs/RL_GPU_ENV.md)). Live entry: `scripts/train_grpo.py`.
+Needs the Plan 11 CUDA env (see [`docs/RL_GPU_ENV.md`](docs/RL_GPU_ENV.md)). Live entry: `scripts/train_grpo.py`. The selected policy is frozen SFT e2.
 
 | Role | Config | Notes |
 | --- | --- | --- |
